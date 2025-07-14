@@ -1,0 +1,67 @@
+# Task ID: 10
+# Title: Develop Shopping Cart System
+# Status: done
+# Dependencies: 4
+# Priority: high
+# Description: Implement a comprehensive shopping cart system with real-time synchronization across devices using TypeScript, Express.js, Prisma ORM, and Socket.io.
+# Details:
+Create a cart API to manage cart items, including adding, removing, and updating items. Implement CRUD operations for the cart, item management, guest cart support, session handling, and price calculations. Use Socket.io for real-time synchronization across multiple devices.
+
+# Test Strategy:
+Test the cart functionality across multiple devices to ensure synchronization works, including guest cart support and session handling.
+
+# Subtasks:
+## 1. Set up Express.js server [done]
+### Dependencies: None
+### Description: 
+### Details:
+
+
+## 2. Integrate Prisma ORM for database management [done]
+### Dependencies: None
+### Description: 
+### Details:
+
+
+## 3. Implement cart CRUD operations [done]
+### Dependencies: None
+### Description: 
+### Details:
+
+
+## 4. Add item management features [done]
+### Dependencies: None
+### Description: 
+### Details:
+
+
+## 5. Implement guest cart support [done]
+### Dependencies: None
+### Description: 
+### Details:
+
+
+## 6. Handle session management [done]
+### Dependencies: None
+### Description: 
+### Details:
+
+
+## 7. Calculate prices for cart items [done]
+### Dependencies: None
+### Description: 
+### Details:
+
+
+## 8. Integrate Socket.io for real-time synchronization [done]
+### Dependencies: None
+### Description: 
+### Details:
+
+
+## 9. Test synchronization across multiple devices [done]
+### Dependencies: None
+### Description: 
+### Details:
+
+

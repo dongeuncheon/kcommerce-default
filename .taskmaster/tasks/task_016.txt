@@ -1,0 +1,11 @@
+# Task ID: 16
+# Title: Implement Shipping Management System
+# Status: done
+# Dependencies: 14
+# Priority: medium
+# Description: Develop the shipping management system with multiple shipping methods and cost calculations.
+# Details:
+Create API endpoints for managing shipping methods and calculating shipping costs based on weight and region.
+
+# Test Strategy:
+Test shipping calculations with various scenarios to ensure accuracy.

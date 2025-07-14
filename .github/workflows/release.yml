@@ -1,0 +1,273 @@
+name: Release Management
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.2.3)'
+        required: true
+      prerelease:
+        description: 'Is this a pre-release?'
+        type: boolean
+        default: false
+
+jobs:
+  prepare-release:
+    name: Prepare Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            VERSION=${GITHUB_REF#refs/tags/v}
+          else
+            VERSION=${{ github.event.inputs.version }}
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@v4
+        with:
+          configuration: '.github/changelog-config.json'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update version files
+        run: |
+          # Update package.json
+          npm version ${{ steps.version.outputs.version }} --no-git-tag-version
+          
+          # Update client package.json
+          cd client && npm version ${{ steps.version.outputs.version }} --no-git-tag-version && cd ..
+          
+          # Update other version files
+          echo "${{ steps.version.outputs.version }}" > VERSION
+
+      - name: Create release branch
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git checkout -b release/${{ steps.version.outputs.version }}
+          git add .
+          git commit -m "chore: bump version to ${{ steps.version.outputs.version }}"
+          git push origin release/${{ steps.version.outputs.version }}
+
+  build-release-artifacts:
+    name: Build Release Artifacts
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [16, 18, 20]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: release/${{ needs.prepare-release.outputs.version }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: |
+          npm run build
+          cd client && npm ci && npm run build && cd ..
+
+      - name: Create tarball
+        run: |
+          tar -czf commerce-plugin-${{ needs.prepare-release.outputs.version }}-${{ matrix.os }}-node${{ matrix.node }}.tar.gz \
+            dist/ \
+            client/dist/ \
+            package.json \
+            package-lock.json \
+            README.md \
+            LICENSE
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: release-artifacts-${{ matrix.os }}-node${{ matrix.node }}
+          path: commerce-plugin-*.tar.gz
+
+  docker-release:
+    name: Build and Push Docker Images
+    needs: prepare-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: release/${{ needs.prepare-release.outputs.version }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker images
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ secrets.DOCKER_USERNAME }}/commerce-plugin:${{ needs.prepare-release.outputs.version }}
+            ${{ secrets.DOCKER_USERNAME }}/commerce-plugin:latest
+            ghcr.io/${{ github.repository }}:${{ needs.prepare-release.outputs.version }}
+            ghcr.io/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  create-github-release:
+    name: Create GitHub Release
+    needs: [prepare-release, build-release-artifacts, docker-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: release-artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.prepare-release.outputs.version }}
+          name: Release v${{ needs.prepare-release.outputs.version }}
+          body: ${{ needs.prepare-release.outputs.changelog }}
+          draft: false
+          prerelease: ${{ github.event.inputs.prerelease || false }}
+          files: release-artifacts/**/*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-npm:
+    name: Publish to NPM
+    needs: [prepare-release, create-github-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: release/${{ needs.prepare-release.outputs.version }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build package
+        run: npm run build
+
+      - name: Publish to NPM
+        run: |
+          if [[ "${{ github.event.inputs.prerelease }}" == "true" ]]; then
+            npm publish --tag beta
+          else
+            npm publish
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  update-documentation:
+    name: Update Documentation
+    needs: [prepare-release, create-github-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: release/${{ needs.prepare-release.outputs.version }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+
+      - name: Generate API documentation
+        run: |
+          npm ci
+          npm run docs:generate
+
+      - name: Deploy documentation
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs/api
+          destination_dir: v${{ needs.prepare-release.outputs.version }}
+
+  post-release:
+    name: Post Release Tasks
+    needs: [prepare-release, create-github-release, publish-npm]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Merge release branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Release v${{ needs.prepare-release.outputs.version }}`,
+              head: `release/${{ needs.prepare-release.outputs.version }}`,
+              base: 'main',
+              body: 'Automated release PR'
+            });
+
+      - name: Notify release
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: |
+            New release published: v${{ needs.prepare-release.outputs.version }}
+            See: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.prepare-release.outputs.version }}
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Update Sentry release
+        uses: getsentry/action-release@v1
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
+        with:
+          environment: production
+          version: ${{ needs.prepare-release.outputs.version }}

@@ -1,0 +1,49 @@
+name: 'Deploy to AWS ECS'
+description: 'Deploy application to AWS ECS cluster'
+inputs:
+  cluster:
+    description: 'ECS cluster name'
+    required: true
+  service:
+    description: 'ECS service name'
+    required: true
+  task-definition:
+    description: 'Task definition file'
+    required: true
+  container-name:
+    description: 'Container name in task definition'
+    required: true
+  image:
+    description: 'Docker image to deploy'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Update task definition
+      shell: bash
+      run: |
+        # Download current task definition
+        aws ecs describe-task-definition \
+          --task-definition ${{ inputs.service }} \
+          --query taskDefinition > task-definition.json
+        
+        # Update image
+        jq '.containerDefinitions[0].image = "${{ inputs.image }}"' task-definition.json > updated-task-definition.json
+
+    - name: Deploy to ECS
+      uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+      with:
+        task-definition: updated-task-definition.json
+        service: ${{ inputs.service }}
+        cluster: ${{ inputs.cluster }}
+        wait-for-service-stability: true
+
+    - name: Wait for deployment
+      shell: bash
+      run: |
+        echo "Waiting for service to stabilize..."
+        aws ecs wait services-stable \
+          --cluster ${{ inputs.cluster }} \
+          --services ${{ inputs.service }}
+        echo "Deployment completed successfully"

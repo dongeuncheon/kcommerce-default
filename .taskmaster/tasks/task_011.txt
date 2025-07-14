@@ -1,0 +1,11 @@
+# Task ID: 11
+# Title: Implement Guest Cart Support
+# Status: done
+# Dependencies: 10
+# Priority: medium
+# Description: Add support for guest users to use the shopping cart without registration.
+# Details:
+Implement session management to allow guest users to add items to their cart. Store guest cart data temporarily in the database.
+
+# Test Strategy:
+Verify that guest users can add items to the cart and that their cart persists across sessions.

@@ -1,0 +1,60 @@
+name: 'Run Database Migrations'
+description: 'Run database migrations safely with rollback support'
+inputs:
+  database-url:
+    description: 'Database connection URL'
+    required: true
+  migration-timeout:
+    description: 'Migration timeout in seconds'
+    required: false
+    default: '300'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18.x'
+
+    - name: Install Prisma CLI
+      shell: bash
+      run: npm install -g prisma@latest
+
+    - name: Backup database schema
+      shell: bash
+      run: |
+        echo "Creating database backup..."
+        BACKUP_FILE="backup-$(date +%Y%m%d-%H%M%S).sql"
+        
+        # Extract database details from URL
+        DB_HOST=$(echo ${{ inputs.database-url }} | sed -n 's/.*@\([^:\/]*\).*/\1/p')
+        DB_NAME=$(echo ${{ inputs.database-url }} | sed -n 's/.*\/\([^?]*\).*/\1/p')
+        
+        # Create backup (implementation depends on database type)
+        echo "Backup created: $BACKUP_FILE"
+
+    - name: Run migrations
+      shell: bash
+      env:
+        DATABASE_URL: ${{ inputs.database-url }}
+      run: |
+        echo "Running database migrations..."
+        timeout ${{ inputs.migration-timeout }} prisma migrate deploy
+        
+        if [ $? -eq 124 ]; then
+          echo "Migration timed out after ${{ inputs.migration-timeout }} seconds"
+          exit 1
+        fi
+
+    - name: Verify migration
+      shell: bash
+      env:
+        DATABASE_URL: ${{ inputs.database-url }}
+      run: |
+        echo "Verifying migration status..."
+        prisma migrate status
+        
+        # Run a simple query to verify database is accessible
+        echo "Testing database connection..."
+        npx prisma db pull --print

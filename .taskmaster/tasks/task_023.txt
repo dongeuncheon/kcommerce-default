@@ -1,0 +1,11 @@
+# Task ID: 23
+# Title: Setup CI/CD Pipeline
+# Status: done
+# Dependencies: 19
+# Priority: high
+# Description: Implement a CI/CD pipeline for automated testing and deployment.
+# Details:
+Use GitHub Actions or Jenkins for CI/CD. Set up workflows for testing and deployment to a cloud service like AWS or Heroku.
+
+# Test Strategy:
+Verify that the CI/CD pipeline runs successfully and deploys the application correctly.

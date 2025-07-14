@@ -1,0 +1,11 @@
+# Task ID: 5
+# Title: Implement Category Management System
+# Status: done
+# Dependencies: 4
+# Priority: medium
+# Description: Develop the hierarchical category management with tagging system.
+# Details:
+Extend the product management API to include category creation and management. Use a tree structure for categories and implement tagging using an array of strings.
+
+# Test Strategy:
+Test the category management endpoints to ensure categories can be created, updated, and deleted.

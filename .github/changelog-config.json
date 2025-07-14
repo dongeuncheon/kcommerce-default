@@ -1,0 +1,89 @@
+{
+  "categories": [
+    {
+      "title": "## 🚀 Features",
+      "labels": ["feat", "feature", "enhancement"]
+    },
+    {
+      "title": "## 🐛 Bug Fixes",
+      "labels": ["fix", "bug", "bugfix"]
+    },
+    {
+      "title": "## 🔧 Maintenance",
+      "labels": ["chore", "maintenance"]
+    },
+    {
+      "title": "## 📚 Documentation",
+      "labels": ["docs", "documentation"]
+    },
+    {
+      "title": "## 🎨 Style",
+      "labels": ["style", "formatting"]
+    },
+    {
+      "title": "## ♻️ Refactoring",
+      "labels": ["refactor", "refactoring"]
+    },
+    {
+      "title": "## ⚡ Performance",
+      "labels": ["perf", "performance"]
+    },
+    {
+      "title": "## ✅ Tests",
+      "labels": ["test", "tests", "testing"]
+    },
+    {
+      "title": "## 🏗️ Build System",
+      "labels": ["build", "ci", "infrastructure"]
+    },
+    {
+      "title": "## ⬆️ Dependencies",
+      "labels": ["dependencies", "deps"]
+    },
+    {
+      "title": "## 🔒 Security",
+      "labels": ["security"]
+    }
+  ],
+  "ignore_labels": [
+    "ignore",
+    "invalid",
+    "wontfix",
+    "duplicate"
+  ],
+  "sort": {
+    "order": "ASC",
+    "on_property": "mergedAt"
+  },
+  "template": "${{CHANGELOG}}\n\n<details>\n<summary>Uncategorized</summary>\n\n${{UNCATEGORIZED}}\n</details>",
+  "pr_template": "- ${{TITLE}} (#${{NUMBER}}) @${{AUTHOR}}",
+  "empty_template": "- No changes",
+  "label_extractor": [
+    {
+      "pattern": "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:\\((.*)\\))?:",
+      "target": "$1"
+    }
+  ],
+  "duplicate_filter": {
+    "pattern": "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:\\(.*\\))?:\\s*(.*)$",
+    "target": "$2"
+  },
+  "transformers": [
+    {
+      "pattern": "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(?:\\((.*)\\))?:\\s*(.*)$",
+      "target": "$3"
+    }
+  ],
+  "max_tags_to_fetch": 200,
+  "max_pull_requests": 200,
+  "max_back_track_time_days": 365,
+  "exclude_merge_branches": [],
+  "tag_resolver": {
+    "method": "semver",
+    "filter": {
+      "pattern": "v(.+)",
+      "flags": "gu"
+    }
+  },
+  "base_branches": ["main", "master"]
+}

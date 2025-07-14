@@ -1,0 +1,11 @@
+# Task ID: 14
+# Title: Implement Order Management System
+# Status: done
+# Dependencies: 10
+# Priority: high
+# Description: Develop the order management system to create and track orders from the shopping cart.
+# Details:
+Create API endpoints for order creation and status tracking. Implement logic to handle different order statuses.
+
+# Test Strategy:
+Test the order creation process and verify that status updates are reflected correctly.

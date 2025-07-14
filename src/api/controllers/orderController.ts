@@ -1,0 +1,323 @@
+import { Request, Response } from 'express'
+import { orderService } from '../../services/orderService'
+import { asyncHandler } from '../../middleware/error'
+import {
+  CreateOrderSchema,
+  UpdateOrderSchema,
+  OrderQuerySchema,
+  OrderParamsSchema,
+  CancelOrderSchema,
+  RefundOrderSchema,
+  UpdateShippingSchema,
+} from '../../types/order'
+
+// Enhanced request interface for authenticated requests
+interface AuthenticatedRequest extends Request {
+  user?: {
+    id: string
+    email: string
+    role: string
+  }
+}
+
+export class OrderController {
+
+  // Create order from cart
+  createOrder = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const validatedData = CreateOrderSchema.parse(req.body)
+    
+    // Add user ID from authenticated user
+    const orderData = {
+      ...validatedData,
+      userId: req.user!.id,
+    }
+
+    const order = await orderService.createOrderFromCart(orderData)
+
+    res.status(201).json({
+      success: true,
+      data: order,
+      message: 'Order created successfully',
+    })
+    return
+  })
+
+  // Get order by ID
+  getOrderById = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { id } = OrderParamsSchema.parse(req.params)
+    const order = await orderService.getOrderById(id)
+
+    // Check if user has access to this order
+    if (req.user!.role !== 'ADMIN' && order.userId !== req.user!.id) {
+      res.status(403).json({
+        success: false,
+        error: {
+          type: 'ForbiddenError',
+          message: 'You do not have access to this order',
+        },
+      })
+      return
+    }
+
+    res.json({
+      success: true,
+      data: order,
+    })
+    return
+  })
+
+  // Get order by order number
+  getOrderByNumber = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { orderNumber } = req.params
+    const order = await orderService.getOrderByNumber(orderNumber)
+
+    // Check if user has access to this order
+    if (req.user!.role !== 'ADMIN' && order.userId !== req.user!.id) {
+      res.status(403).json({
+        success: false,
+        error: {
+          type: 'ForbiddenError',
+          message: 'You do not have access to this order',
+        },
+      })
+      return
+    }
+
+    res.json({
+      success: true,
+      data: order,
+    })
+    return
+  })
+
+  // Get user's orders
+  getMyOrders = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const validatedQuery = OrderQuerySchema.parse(req.query)
+    const result = await orderService.getUserOrders(req.user!.id, validatedQuery)
+
+    res.json({
+      success: true,
+      data: result.orders,
+      pagination: result.pagination,
+    })
+    return
+  })
+
+  // Get all orders (admin)
+  getOrders = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const validatedQuery = OrderQuerySchema.parse(req.query)
+    const result = await orderService.getOrders(validatedQuery)
+
+    res.json({
+      success: true,
+      data: result.orders,
+      pagination: result.pagination,
+    })
+  })
+
+  // Update order (admin)
+  updateOrder = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { id } = OrderParamsSchema.parse(req.params)
+    const validatedData = UpdateOrderSchema.parse(req.body)
+
+    const order = await orderService.updateOrder(id, validatedData)
+
+    res.json({
+      success: true,
+      data: order,
+      message: 'Order updated successfully',
+    })
+  })
+
+  // Cancel order
+  cancelOrder = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { id } = OrderParamsSchema.parse(req.params)
+    const validatedData = CancelOrderSchema.parse(req.body)
+
+    // Get order to check ownership
+    const order = await orderService.getOrderById(id)
+
+    // Check if user has permission to cancel
+    if (req.user!.role !== 'ADMIN' && order.userId !== req.user!.id) {
+      res.status(403).json({
+        success: false,
+        error: {
+          type: 'ForbiddenError',
+          message: 'You do not have permission to cancel this order',
+        },
+      })
+    }
+
+    const cancelledOrder = await orderService.cancelOrder(id, validatedData)
+
+    res.json({
+      success: true,
+      data: cancelledOrder,
+      message: 'Order cancelled successfully',
+    })
+  })
+
+  // Process refund (admin)
+  processRefund = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { id } = OrderParamsSchema.parse(req.params)
+    const validatedData = RefundOrderSchema.parse(req.body)
+
+    const refundedOrder = await orderService.processRefund(id, validatedData)
+
+    res.json({
+      success: true,
+      data: refundedOrder,
+      message: 'Refund processed successfully',
+    })
+  })
+
+  // Update shipping information (admin)
+  updateShipping = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { id } = OrderParamsSchema.parse(req.params)
+    const validatedData = UpdateShippingSchema.parse(req.body)
+
+    const order = await orderService.updateShipping(id, validatedData)
+
+    res.json({
+      success: true,
+      data: order,
+      message: 'Shipping information updated successfully',
+    })
+  })
+
+  // Mark order as delivered (admin)
+  markAsDelivered = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { id } = OrderParamsSchema.parse(req.params)
+
+    const order = await orderService.markAsDelivered(id)
+
+    res.json({
+      success: true,
+      data: order,
+      message: 'Order marked as delivered',
+    })
+  })
+
+  // Get order timeline
+  getOrderTimeline = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { id } = OrderParamsSchema.parse(req.params)
+
+    // Get order to check ownership
+    const order = await orderService.getOrderById(id)
+
+    // Check if user has access to this order
+    if (req.user!.role !== 'ADMIN' && order.userId !== req.user!.id) {
+      res.status(403).json({
+        success: false,
+        error: {
+          type: 'ForbiddenError',
+          message: 'You do not have access to this order timeline',
+        },
+      })
+    }
+
+    const timeline = await orderService.getOrderTimeline(id)
+
+    res.json({
+      success: true,
+      data: timeline,
+    })
+  })
+
+  // Get order analytics (admin)
+  getOrderAnalytics = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { userId } = req.query
+    const analytics = await orderService.getOrderAnalytics(userId as string)
+
+    res.json({
+      success: true,
+      data: analytics,
+    })
+  })
+
+  // Get my order analytics
+  getMyOrderAnalytics = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const analytics = await orderService.getOrderAnalytics(req.user!.id)
+
+    res.json({
+      success: true,
+      data: analytics,
+    })
+  })
+
+  // Download invoice
+  downloadInvoice = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { id } = OrderParamsSchema.parse(req.params)
+
+    // Get order to check ownership
+    const order = await orderService.getOrderById(id)
+
+    // Check if user has access to this order
+    if (req.user!.role !== 'ADMIN' && order.userId !== req.user!.id) {
+      res.status(403).json({
+        success: false,
+        error: {
+          type: 'ForbiddenError',
+          message: 'You do not have access to this invoice',
+        },
+      })
+    }
+
+    // TODO: Generate PDF invoice
+    res.json({
+      success: false,
+      error: {
+        type: 'NotImplementedError',
+        message: 'Invoice generation not yet implemented',
+      },
+    })
+  })
+
+  // Resend order confirmation
+  resendOrderConfirmation = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const { id } = OrderParamsSchema.parse(req.params)
+
+    // Get order to check ownership
+    const order = await orderService.getOrderById(id)
+
+    // Check if user has access to this order
+    if (req.user!.role !== 'ADMIN' && order.userId !== req.user!.id) {
+      res.status(403).json({
+        success: false,
+        error: {
+          type: 'ForbiddenError',
+          message: 'You do not have permission to resend confirmation',
+        },
+      })
+    }
+
+    // TODO: Send order confirmation email
+    res.json({
+      success: false,
+      error: {
+        type: 'NotImplementedError',
+        message: 'Email service not yet implemented',
+      },
+    })
+  })
+
+  // Export orders (admin)
+  exportOrders = asyncHandler(async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    // Parse query and format for future implementation
+    OrderQuerySchema.parse(req.query)
+    const { format: _format = 'csv' } = req.query
+    // Suppress unused variable warning - functionality not yet implemented
+    void _format
+
+    // TODO: Implement order export functionality
+    res.json({
+      success: false,
+      error: {
+        type: 'NotImplementedError',
+        message: 'Order export not yet implemented',
+      },
+    })
+  })
+}
+
+export const orderController = new OrderController()

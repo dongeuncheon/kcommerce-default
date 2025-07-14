@@ -1,0 +1,92 @@
+groups:
+  - name: business_alerts
+    rules:
+      # Low order conversion rate
+      - alert: LowOrderConversionRate
+        expr: (rate(orders_completed_total[1h]) / rate(cart_created_total[1h])) < 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low order conversion rate"
+          description: "Order conversion rate is {{ $value | humanizePercentage }} over the last hour"
+
+      # High cart abandonment rate
+      - alert: HighCartAbandonmentRate
+        expr: (rate(cart_abandoned_total[1h]) / rate(cart_created_total[1h])) > 0.7
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High cart abandonment rate"
+          description: "Cart abandonment rate is {{ $value | humanizePercentage }} over the last hour"
+
+      # Revenue drop
+      - alert: RevenueDrop
+        expr: rate(revenue_total[1h]) < rate(revenue_total[1h] offset 24h) * 0.8
+        for: 30m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Significant revenue drop"
+          description: "Revenue is {{ $value }} compared to same time yesterday"
+
+      # Payment failures
+      - alert: HighPaymentFailureRate
+        expr: (rate(payment_failures_total[5m]) / rate(payment_attempts_total[5m])) > 0.05
+        for: 3m
+        labels:
+          severity: critical
+        annotations:
+          summary: "High payment failure rate"
+          description: "Payment failure rate is {{ $value | humanizePercentage }}"
+
+      # Low inventory alerts
+      - alert: LowInventoryWarning
+        expr: product_inventory_level < 10
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Low inventory warning"
+          description: "Product {{ $labels.product_id }} has only {{ $value }} items left"
+
+      # Out of stock
+      - alert: ProductOutOfStock
+        expr: product_inventory_level == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Product out of stock"
+          description: "Product {{ $labels.product_id }} is out of stock"
+
+      # High search with no results
+      - alert: HighNoResultsSearchRate
+        expr: (rate(search_no_results_total[5m]) / rate(search_requests_total[5m])) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High no-results search rate"
+          description: "{{ $value | humanizePercentage }} of searches return no results"
+
+      # Unusual user activity
+      - alert: UnusualUserActivity
+        expr: rate(user_registrations_total[1h]) > rate(user_registrations_total[1h] offset 24h) * 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Unusual user registration activity"
+          description: "User registrations are {{ $value }}x higher than usual"
+
+      # Session timeout issues
+      - alert: HighSessionTimeoutRate
+        expr: (rate(session_timeouts_total[5m]) / rate(session_created_total[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High session timeout rate"
+          description: "Session timeout rate is {{ $value | humanizePercentage }}"

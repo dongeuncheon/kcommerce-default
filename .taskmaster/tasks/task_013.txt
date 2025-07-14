@@ -1,0 +1,11 @@
+# Task ID: 13
+# Title: Implement Session-Based Auto-Save Functionality
+# Status: done
+# Dependencies: 10
+# Priority: medium
+# Description: Add auto-save functionality for the shopping cart based on user sessions.
+# Details:
+Implement logic to automatically save the cart state at regular intervals or when items are added/removed.
+
+# Test Strategy:
+Simulate user activity and verify that the cart state is saved and restored correctly.

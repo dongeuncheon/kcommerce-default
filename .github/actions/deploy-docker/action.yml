@@ -1,0 +1,59 @@
+name: 'Deploy using Docker'
+description: 'Deploy application using Docker Compose to remote host'
+inputs:
+  host:
+    description: 'Target host for deployment'
+    required: true
+  username:
+    description: 'SSH username'
+    required: true
+  key:
+    description: 'SSH private key'
+    required: true
+  compose-file:
+    description: 'Docker Compose file to use'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup SSH
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.key }}" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -H ${{ inputs.host }} >> ~/.ssh/known_hosts
+
+    - name: Copy compose file
+      shell: bash
+      run: |
+        scp -i ~/.ssh/deploy_key \
+          ${{ inputs.compose-file }} \
+          ${{ inputs.username }}@${{ inputs.host }}:~/docker-compose.yml
+
+    - name: Deploy application
+      shell: bash
+      run: |
+        ssh -i ~/.ssh/deploy_key ${{ inputs.username }}@${{ inputs.host }} << 'EOF'
+          # Pull latest images
+          docker-compose pull
+          
+          # Deploy with zero-downtime
+          docker-compose up -d --no-deps --scale api=2
+          
+          # Wait for new containers to be healthy
+          sleep 30
+          
+          # Remove old containers
+          docker-compose up -d --no-recreate
+          
+          # Clean up
+          docker system prune -f
+        EOF
+
+    - name: Cleanup
+      shell: bash
+      if: always()
+      run: |
+        rm -f ~/.ssh/deploy_key

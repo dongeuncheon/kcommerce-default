@@ -1,0 +1,92 @@
+# Node modules
+node_modules/
+*/node_modules/
+
+# Build outputs
+dist/
+*/dist/
+build/
+*/build/
+
+# Test coverage
+coverage/
+*.lcov
+.nyc_output/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git
+.git/
+.gitignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Test files
+tests/
+test/
+*.test.ts
+*.spec.ts
+__tests__/
+
+# Development files
+.eslintrc*
+.prettierrc*
+.editorconfig
+tsconfig.json
+jest.config.js
+nodemon.json
+
+# Docker files (except the ones we need)
+docker-compose*.yml
+!docker-compose.production.yml
+Dockerfile*
+!Dockerfile
+!Dockerfile.production
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Database
+*.sqlite
+*.sqlite3
+prisma/migrations/
+prisma/seed.ts
+
+# Package manager files
+pnpm-lock.yaml
+yarn.lock
+package-lock.json
+
+# Scripts (except necessary ones)
+scripts/
+!scripts/start.sh
+!scripts/healthcheck.sh

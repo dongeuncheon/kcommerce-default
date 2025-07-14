@@ -1,0 +1,279 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  pr-validation:
+    name: PR Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check PR title
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+
+      - name: Check branch naming
+        run: |
+          branch_name="${{ github.head_ref }}"
+          if ! [[ "$branch_name" =~ ^(feature|bugfix|hotfix|release|chore)/[a-z0-9-]+$ ]]; then
+            echo "Branch name '$branch_name' does not follow naming convention"
+            echo "Expected format: {type}/{description}"
+            echo "Types: feature, bugfix, hotfix, release, chore"
+            exit 1
+          fi
+
+      - name: Check commit messages
+        uses: wagoid/commitlint-github-action@v5
+        with:
+          configFile: .commitlintrc.js
+
+  size-check:
+    name: PR Size Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR size
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            const { additions, deletions, changed_files } = pr;
+            
+            let labels = [];
+            
+            // Size labels
+            if (additions + deletions < 10) {
+              labels.push('size/XS');
+            } else if (additions + deletions < 100) {
+              labels.push('size/S');
+            } else if (additions + deletions < 500) {
+              labels.push('size/M');
+            } else if (additions + deletions < 1000) {
+              labels.push('size/L');
+            } else {
+              labels.push('size/XL');
+              
+              // Warning for large PRs
+              github.rest.issues.createComment({
+                issue_number: pr.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: '⚠️ This PR is quite large. Consider breaking it into smaller PRs for easier review.'
+              });
+            }
+            
+            // Add labels
+            if (labels.length > 0) {
+              github.rest.issues.addLabels({
+                issue_number: pr.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                labels: labels
+              });
+            }
+
+  auto-assign:
+    name: Auto Assign Reviewers
+    runs-on: ubuntu-latest
+    steps:
+      - name: Auto assign reviewers
+        uses: kentaro-m/auto-assign-action@v1.2.5
+        with:
+          configuration-path: '.github/auto-assign.yml'
+
+  danger-check:
+    name: Danger JS Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+
+      - name: Install Danger
+        run: npm install -g danger
+
+      - name: Run Danger
+        run: danger ci
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DANGER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  documentation-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for documentation updates
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { data: files } = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            });
+            
+            const codeFiles = files.filter(f => 
+              f.filename.endsWith('.ts') || 
+              f.filename.endsWith('.tsx') ||
+              f.filename.endsWith('.js') ||
+              f.filename.endsWith('.jsx')
+            );
+            
+            const docFiles = files.filter(f => 
+              f.filename.endsWith('.md') ||
+              f.filename.includes('/docs/')
+            );
+            
+            if (codeFiles.length > 0 && docFiles.length === 0) {
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: '📝 This PR contains code changes but no documentation updates. Please consider updating the documentation if needed.'
+              });
+            }
+
+  test-coverage-check:
+    name: Test Coverage Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Check coverage thresholds
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const coverage = JSON.parse(fs.readFileSync('coverage/coverage-summary.json', 'utf8'));
+            
+            const thresholds = {
+              branches: 80,
+              functions: 80,
+              lines: 85,
+              statements: 85
+            };
+            
+            let passed = true;
+            let report = '## Coverage Report\n\n';
+            
+            for (const [metric, threshold] of Object.entries(thresholds)) {
+              const value = coverage.total[metric].pct;
+              const emoji = value >= threshold ? '✅' : '❌';
+              report += `${emoji} ${metric}: ${value}% (threshold: ${threshold}%)\n`;
+              
+              if (value < threshold) {
+                passed = false;
+              }
+            }
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: report
+            });
+            
+            if (!passed) {
+              core.setFailed('Coverage thresholds not met');
+            }
+
+  api-breaking-changes:
+    name: API Breaking Changes Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+
+      - name: Check for breaking changes
+        run: |
+          npm install -g @apidevtools/swagger-cli openapi-diff
+          
+          # Generate OpenAPI specs
+          npm run generate:openapi
+          cd base && npm run generate:openapi && cd ..
+          
+          # Compare APIs
+          openapi-diff base/openapi.json openapi.json > api-diff.txt || true
+          
+          if grep -q "breaking" api-diff.txt; then
+            echo "::warning::Potential breaking API changes detected"
+            cat api-diff.txt
+          fi
+
+  performance-impact:
+    name: Performance Impact Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18.x'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run bundle size check
+        uses: andresz1/size-limit-action@v1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          skip_step: build
+
+      - name: Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v10
+        with:
+          uploadArtifacts: true
+          temporaryPublicStorage: true

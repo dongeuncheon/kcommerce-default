@@ -1,0 +1,79 @@
+name: 'Rollback Deployment'
+description: 'Rollback to a previous deployment snapshot'
+inputs:
+  environment:
+    description: 'Environment to rollback'
+    required: true
+  snapshot-id:
+    description: 'Snapshot ID to rollback to'
+    required: true
+  notify-webhook:
+    description: 'Webhook URL for notifications'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Retrieve snapshot
+      shell: bash
+      run: |
+        echo "Retrieving snapshot: ${{ inputs.snapshot-id }}"
+        # Download snapshot from S3 or other storage
+        aws s3 cp s3://backups/${{ inputs.environment }}/${{ inputs.snapshot-id }}.tar.gz snapshot.tar.gz
+
+    - name: Extract deployment info
+      shell: bash
+      run: |
+        tar -xzf snapshot.tar.gz deployment-info.json
+        PREVIOUS_IMAGE=$(jq -r '.image' deployment-info.json)
+        PREVIOUS_VERSION=$(jq -r '.version' deployment-info.json)
+        echo "ROLLBACK_IMAGE=$PREVIOUS_IMAGE" >> $GITHUB_ENV
+        echo "ROLLBACK_VERSION=$PREVIOUS_VERSION" >> $GITHUB_ENV
+
+    - name: Rollback deployment
+      shell: bash
+      run: |
+        echo "Rolling back to version: $ROLLBACK_VERSION"
+        
+        # Update service with previous image
+        if [ "${{ inputs.environment }}" = "production" ]; then
+          # Production rollback
+          kubectl set image deployment/commerce-api \
+            commerce-api=$ROLLBACK_IMAGE \
+            --namespace=production
+        else
+          # Staging rollback
+          kubectl set image deployment/commerce-api \
+            commerce-api=$ROLLBACK_IMAGE \
+            --namespace=staging
+        fi
+
+    - name: Wait for rollback
+      shell: bash
+      run: |
+        kubectl rollout status deployment/commerce-api \
+          --namespace=${{ inputs.environment }} \
+          --timeout=600s
+
+    - name: Verify rollback
+      shell: bash
+      run: |
+        # Check deployment health
+        HEALTH_URL="https://${{ inputs.environment }}.example.com/health"
+        for i in {1..10}; do
+          if curl -f $HEALTH_URL; then
+            echo "Rollback successful"
+            break
+          fi
+          sleep 10
+        done
+
+    - name: Notify rollback
+      if: ${{ inputs.notify-webhook != '' }}
+      shell: bash
+      run: |
+        curl -X POST ${{ inputs.notify-webhook }} \
+          -H 'Content-Type: application/json' \
+          -d '{
+            "text": "🔄 Rollback completed for ${{ inputs.environment }} to version ${{ env.ROLLBACK_VERSION }}"
+          }'

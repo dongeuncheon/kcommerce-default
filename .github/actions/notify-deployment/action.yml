@@ -1,0 +1,118 @@
+name: 'Notify Deployment'
+description: 'Send deployment notifications to various channels'
+inputs:
+  environment:
+    description: 'Deployment environment'
+    required: true
+  status:
+    description: 'Deployment status'
+    required: true
+  webhook-url:
+    description: 'Slack webhook URL'
+    required: false
+  pagerduty-token:
+    description: 'PagerDuty integration token'
+    required: false
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Send Slack notification
+      if: ${{ inputs.webhook-url != '' }}
+      shell: bash
+      run: |
+        STATUS_EMOJI=""
+        STATUS_COLOR=""
+        
+        if [ "${{ inputs.status }}" = "success" ]; then
+          STATUS_EMOJI="✅"
+          STATUS_COLOR="good"
+        else
+          STATUS_EMOJI="❌"
+          STATUS_COLOR="danger"
+        fi
+        
+        PAYLOAD=$(cat <<EOF
+        {
+          "attachments": [
+            {
+              "color": "$STATUS_COLOR",
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "$STATUS_EMOJI *Deployment to ${{ inputs.environment }}*"
+                  }
+                },
+                {
+                  "type": "section",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Status:*\n${{ inputs.status }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Environment:*\n${{ inputs.environment }}"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Commit:*\n<${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|${{ github.sha }}>"
+                    },
+                    {
+                      "type": "mrkdwn",
+                      "text": "*Triggered by:*\n${{ github.actor }}"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+        EOF
+        )
+        
+        curl -X POST -H 'Content-type: application/json' \
+          --data "$PAYLOAD" \
+          ${{ inputs.webhook-url }}
+
+    - name: Create PagerDuty change event
+      if: ${{ inputs.pagerduty-token != '' && inputs.environment == 'production' }}
+      shell: bash
+      run: |
+        curl -X POST https://events.pagerduty.com/v2/change/enqueue \
+          -H "Authorization: Token token=${{ inputs.pagerduty-token }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "routing_key": "${{ inputs.pagerduty-token }}",
+            "payload": {
+              "summary": "Deployment to ${{ inputs.environment }} - ${{ inputs.status }}",
+              "timestamp": "'$(date -u +"%Y-%m-%dT%H:%M:%SZ")'",
+              "source": "GitHub Actions",
+              "custom_details": {
+                "environment": "${{ inputs.environment }}",
+                "status": "${{ inputs.status }}",
+                "commit": "${{ github.sha }}",
+                "repository": "${{ github.repository }}",
+                "actor": "${{ github.actor }}"
+              }
+            },
+            "links": [{
+              "href": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "text": "GitHub Action Run"
+            }]
+          }'
+
+    - name: Update deployment status in GitHub
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const deployment = await github.rest.repos.createDeploymentStatus({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            deployment_id: context.payload.deployment.id,
+            state: '${{ inputs.status }}' === 'success' ? 'success' : 'failure',
+            environment_url: `https://${{ inputs.environment }}.example.com`,
+            description: 'Deployment ${{ inputs.status }}'
+          });

@@ -1,0 +1,61 @@
+# Task ID: 3
+# Title: Design Database Schema
+# Status: done
+# Dependencies: 2
+# Priority: high
+# Description: Create the database schema based on the requirements for a commerce platform, including products, orders, customers, categories, cart, payments, shipping, and inventory management.
+# Details:
+Use PostgreSQL with Prisma ORM for schema definitions. Define schemas for Products, Orders, Customers, Categories, Cart, Payments, Shipping, and Inventory Management with appropriate fields and relationships.
+
+# Test Strategy:
+Run a script to create the database and verify that the schemas are correctly defined using Prisma migrations.
+
+# Subtasks:
+## 1. Define Product Schema [done]
+### Dependencies: None
+### Description: 
+### Details:
+Create the schema for products including fields like name, price, description, and category.
+
+## 2. Define Order Schema [done]
+### Dependencies: None
+### Description: 
+### Details:
+Create the schema for orders including fields like order ID, customer ID, product IDs, and order status.
+
+## 3. Define Customer Schema [done]
+### Dependencies: None
+### Description: 
+### Details:
+Create the schema for customers including fields like name, email, and address.
+
+## 4. Define Category Schema [done]
+### Dependencies: None
+### Description: 
+### Details:
+Create the schema for categories including fields like category name and description.
+
+## 5. Define Cart Schema [done]
+### Dependencies: None
+### Description: 
+### Details:
+Create the schema for the shopping cart including fields like customer ID and product IDs.
+
+## 6. Define Payment Schema [done]
+### Dependencies: None
+### Description: 
+### Details:
+Create the schema for payments including fields like payment ID, order ID, and payment status.
+
+## 7. Define Shipping Schema [done]
+### Dependencies: None
+### Description: 
+### Details:
+Create the schema for shipping including fields like shipping ID, order ID, and shipping status.
+
+## 8. Define Inventory Management Schema [done]
+### Dependencies: None
+### Description: 
+### Details:
+Create the schema for inventory management including fields like product ID, stock quantity, and restock date.
+

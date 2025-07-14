@@ -1,0 +1,226 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Business Metrics Dashboard",
+    "tags": ["business", "commerce", "kpi"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "1m",
+    "time": {
+      "from": "now-24h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Revenue (24h)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(revenue_total[24h])",
+            "legendFormat": "Total Revenue"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 1000},
+                {"color": "green", "value": 10000}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Orders Completed (24h)",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(orders_completed_total[24h])",
+            "legendFormat": "Orders"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "green", "value": 100}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Conversion Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "(increase(orders_completed_total[24h]) / increase(cart_created_total[24h])) * 100",
+            "legendFormat": "Conversion %"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 2},
+                {"color": "green", "value": 5}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "Average Order Value",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "increase(revenue_total[24h]) / increase(orders_completed_total[24h])",
+            "legendFormat": "AOV"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "currencyUSD",
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 50},
+                {"color": "green", "value": 100}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "Revenue Trend",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(revenue_total[1h])",
+            "legendFormat": "Revenue/hour"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Revenue ($)",
+            "min": 0
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "Orders by Status",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "sum by (status) (orders_by_status_total)",
+            "legendFormat": "{{status}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 7,
+        "title": "Cart Abandonment Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "(rate(cart_abandoned_total[1h]) / rate(cart_created_total[1h])) * 100",
+            "legendFormat": "Abandonment %"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Percentage",
+            "min": 0,
+            "max": 100
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 8,
+        "title": "Payment Success Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "(rate(payment_success_total[5m]) / rate(payment_attempts_total[5m])) * 100",
+            "legendFormat": "Success %"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Percentage",
+            "min": 0,
+            "max": 100
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 9,
+        "title": "Top Products by Revenue",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "topk(10, sum by (product_name) (increase(product_revenue_total[24h])))",
+            "legendFormat": "{{product_name}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+      },
+      {
+        "id": 10,
+        "title": "User Activity",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(user_registrations_total[1h])",
+            "legendFormat": "Registrations/hour"
+          },
+          {
+            "expr": "rate(user_logins_total[1h])",
+            "legendFormat": "Logins/hour"
+          }
+        ],
+        "yAxes": [
+          {
+            "label": "Users",
+            "min": 0
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+      }
+    ]
+  }
+}

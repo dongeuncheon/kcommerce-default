@@ -1,0 +1,59 @@
+name: 'Setup Deployment Environment'
+description: 'Setup deployment environment with necessary tools and credentials'
+inputs:
+  environment:
+    description: 'Deployment environment (staging/production)'
+    required: true
+  aws-access-key-id:
+    description: 'AWS Access Key ID'
+    required: false
+  aws-secret-access-key:
+    description: 'AWS Secret Access Key'
+    required: false
+  aws-region:
+    description: 'AWS Region'
+    required: false
+    default: 'us-east-1'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup AWS CLI
+      if: ${{ inputs.aws-access-key-id != '' }}
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ inputs.aws-access-key-id }}
+        aws-secret-access-key: ${{ inputs.aws-secret-access-key }}
+        aws-region: ${{ inputs.aws-region }}
+
+    - name: Setup kubectl
+      if: ${{ inputs.aws-access-key-id != '' }}
+      shell: bash
+      run: |
+        curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
+        chmod +x kubectl
+        sudo mv kubectl /usr/local/bin/
+
+    - name: Setup Helm
+      if: ${{ inputs.aws-access-key-id != '' }}
+      uses: azure/setup-helm@v3
+      with:
+        version: 'latest'
+
+    - name: Install deployment tools
+      shell: bash
+      run: |
+        # Install jq for JSON processing
+        sudo apt-get update
+        sudo apt-get install -y jq
+        
+        # Install yq for YAML processing
+        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+        sudo chmod +x /usr/local/bin/yq
+
+    - name: Setup environment variables
+      shell: bash
+      run: |
+        echo "DEPLOYMENT_ENV=${{ inputs.environment }}" >> $GITHUB_ENV
+        echo "DEPLOYMENT_TIMESTAMP=$(date +%Y%m%d%H%M%S)" >> $GITHUB_ENV
+        echo "DEPLOYMENT_ID=${{ github.sha }}-${{ inputs.environment }}" >> $GITHUB_ENV

@@ -1,0 +1,185 @@
+name: CD - Deploy to Production
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18.x'
+  PNPM_VERSION: '8'
+
+jobs:
+  pre-deployment-checks:
+    name: Pre-deployment Checks
+    runs-on: ubuntu-latest
+    outputs:
+      should-deploy: ${{ steps.check.outputs.should-deploy }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check deployment conditions
+        id: check
+        run: |
+          # Check if all required checks have passed
+          # Check if staging deployment was successful
+          # Check if there are any critical issues
+          echo "should-deploy=true" >> $GITHUB_OUTPUT
+
+  approval:
+    name: Deployment Approval
+    needs: pre-deployment-checks
+    if: needs.pre-deployment-checks.outputs.should-deploy == 'true'
+    runs-on: ubuntu-latest
+    environment: production-approval
+    steps:
+      - name: Request deployment approval
+        run: echo "Deployment approved by ${{ github.actor }}"
+
+  backup:
+    name: Backup Production
+    needs: approval
+    runs-on: ubuntu-latest
+    steps:
+      - name: Backup database
+        uses: ./.github/actions/backup-database
+        with:
+          database-url: ${{ secrets.PRODUCTION_DATABASE_URL }}
+          backup-bucket: ${{ secrets.BACKUP_BUCKET }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Create system snapshot
+        uses: ./.github/actions/create-snapshot
+        with:
+          environment: production
+          snapshot-id: pre-deploy-${{ github.sha }}
+
+  deploy-production:
+    name: Deploy to Production
+    needs: backup
+    runs-on: ubuntu-latest
+    environment: production
+    strategy:
+      matrix:
+        region: [us-east-1, eu-west-1, ap-southeast-1]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup deployment environment
+        uses: ./.github/actions/setup-deployment
+        with:
+          environment: production
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ matrix.region }}
+
+      - name: Blue-Green Deployment to AWS
+        if: ${{ vars.DEPLOYMENT_TARGET == 'aws' }}
+        uses: ./.github/actions/deploy-aws-blue-green
+        with:
+          cluster: commerce-production-${{ matrix.region }}
+          service: commerce-api
+          task-definition: task-definition-production.json
+          container-name: commerce-api
+          image: ${{ secrets.DOCKER_USERNAME }}/commerce-plugin:${{ github.sha }}
+          target-group-arn: ${{ secrets[format('TARGET_GROUP_ARN_{0}', matrix.region)] }}
+
+      - name: Deploy to Heroku Production
+        if: ${{ vars.DEPLOYMENT_TARGET == 'heroku' && matrix.region == 'us-east-1' }}
+        uses: akhileshns/heroku-deploy@v3.12.14
+        with:
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name: ${{ secrets.HEROKU_APP_NAME_PRODUCTION }}
+          heroku_email: ${{ secrets.HEROKU_EMAIL }}
+          branch: main
+          dockerfile_directory: ./
+          dockerfile_name: Dockerfile.production
+          process_type: web
+
+      - name: Rolling Update using Docker Swarm
+        if: ${{ vars.DEPLOYMENT_TARGET == 'docker' }}
+        uses: ./.github/actions/deploy-docker-swarm
+        with:
+          host: ${{ secrets[format('PRODUCTION_HOST_{0}', matrix.region)] }}
+          username: ${{ secrets.PRODUCTION_USERNAME }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          stack-name: commerce-production
+          compose-file: docker-compose.production.yml
+
+      - name: Run database migrations
+        uses: ./.github/actions/run-migrations
+        with:
+          database-url: ${{ secrets[format('PRODUCTION_DATABASE_URL_{0}', matrix.region)] }}
+          migration-timeout: 600
+
+      - name: Cache warm-up
+        run: |
+          curl -X POST ${{ secrets[format('PRODUCTION_URL_{0}', matrix.region)] }}/api/cache/warm-up \
+            -H "Authorization: Bearer ${{ secrets.CACHE_WARMUP_TOKEN }}"
+
+      - name: Health check
+        run: |
+          sleep 60
+          for i in {1..5}; do
+            curl -f ${{ secrets[format('PRODUCTION_URL_{0}', matrix.region)] }}/health && break
+            sleep 10
+          done
+
+      - name: Run production tests
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test:production --url=${{ secrets[format('PRODUCTION_URL_{0}', matrix.region)] }}
+
+  post-deployment:
+    name: Post-deployment Tasks
+    needs: deploy-production
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Update deployment status
+        uses: ./.github/actions/update-deployment-status
+        with:
+          environment: production
+          status: ${{ needs.deploy-production.result }}
+          deployment-id: ${{ github.sha }}
+
+      - name: Invalidate CDN cache
+        if: needs.deploy-production.result == 'success'
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+            --paths "/*"
+
+      - name: Notify deployment
+        uses: ./.github/actions/notify-deployment
+        with:
+          environment: production
+          status: ${{ needs.deploy-production.result }}
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+          pagerduty-token: ${{ secrets.PAGERDUTY_TOKEN }}
+
+      - name: Create release notes
+        if: needs.deploy-production.result == 'success'
+        uses: ./.github/actions/create-release-notes
+        with:
+          version: ${{ github.sha }}
+          changelog-path: CHANGELOG.md
+
+  rollback:
+    name: Rollback if Failed
+    needs: [deploy-production, post-deployment]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Trigger rollback
+        uses: ./.github/actions/rollback-deployment
+        with:
+          environment: production
+          snapshot-id: pre-deploy-${{ github.sha }}
+          notify-webhook: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1,0 +1,81 @@
+name: CD - Deploy to Staging
+
+on:
+  push:
+    branches: [ develop ]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '18.x'
+  PNPM_VERSION: '8'
+
+jobs:
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup deployment environment
+        uses: ./.github/actions/setup-deployment
+        with:
+          environment: staging
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Deploy to AWS ECS
+        if: ${{ vars.DEPLOYMENT_TARGET == 'aws' }}
+        uses: ./.github/actions/deploy-aws
+        with:
+          cluster: commerce-staging
+          service: commerce-api
+          task-definition: task-definition-staging.json
+          container-name: commerce-api
+          image: ${{ secrets.DOCKER_USERNAME }}/commerce-plugin:${{ github.sha }}
+
+      - name: Deploy to Heroku
+        if: ${{ vars.DEPLOYMENT_TARGET == 'heroku' }}
+        uses: akhileshns/heroku-deploy@v3.12.14
+        with:
+          heroku_api_key: ${{ secrets.HEROKU_API_KEY }}
+          heroku_app_name: ${{ secrets.HEROKU_APP_NAME_STAGING }}
+          heroku_email: ${{ secrets.HEROKU_EMAIL }}
+          branch: develop
+          dockerfile_directory: ./
+          dockerfile_name: Dockerfile
+          process_type: web
+
+      - name: Deploy using Docker Compose
+        if: ${{ vars.DEPLOYMENT_TARGET == 'docker' }}
+        uses: ./.github/actions/deploy-docker
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USERNAME }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          compose-file: docker-compose.staging.yml
+
+      - name: Run database migrations
+        uses: ./.github/actions/run-migrations
+        with:
+          database-url: ${{ secrets.STAGING_DATABASE_URL }}
+
+      - name: Health check
+        run: |
+          sleep 30
+          curl -f ${{ secrets.STAGING_URL }}/health || exit 1
+
+      - name: Run smoke tests
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm test:smoke --url=${{ secrets.STAGING_URL }}
+
+      - name: Notify deployment
+        if: always()
+        uses: ./.github/actions/notify-deployment
+        with:
+          environment: staging
+          status: ${{ job.status }}
+          webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

@@ -1,0 +1,11 @@
+# Task ID: 21
+# Title: Develop Admin Panel Components
+# Status: done
+# Dependencies: 2
+# Priority: medium
+# Description: Create admin panel components for managing products, orders, and customers.
+# Details:
+Build React components for the admin dashboard, including product management, order tracking, and customer management.
+
+# Test Strategy:
+Test the admin panel functionality to ensure all management features work as intended.

@@ -1,0 +1,11 @@
+# Task ID: 17
+# Title: Implement Customer Management System
+# Status: done
+# Dependencies: 14
+# Priority: medium
+# Description: Develop the customer management system for profile and order history management.
+# Details:
+Create API endpoints for managing customer profiles, including saved addresses and payment methods.
+
+# Test Strategy:
+Test customer profile creation and retrieval to ensure data is managed correctly.
