@@ -1,0 +1,127 @@
+{{ define "__korean_title" }}
+[{{ .Status | toUpper }}{{ if eq .Status "firing" }}:{{ .Alerts.Firing | len }}{{ end }}] {{ .GroupLabels.SortedPairs.Values | join " " }} {{ if gt (len .CommonLabels) (len .GroupLabels) }}({{ with .CommonLabels.Remove .GroupLabels.Names }}{{ .Values | join " " }}{{ end }}){{ end }}
+{{ end }}
+
+{{ define "__korean_description" }}
+{{ range $i, $alert := .Alerts }}
+{{ if $i }}{{ "\n" }}{{ end }}
+**알림명**: {{ $alert.Annotations.summary }}
+**설명**: {{ $alert.Annotations.description }}
+**발생시간**: {{ $alert.StartsAt.Format "2006-01-02 15:04:05 KST" }}
+**심각도**: {{ $alert.Labels.severity }}
+{{ if $alert.Labels.payment_gateway }}**결제사**: {{ $alert.Labels.payment_gateway }}{{ end }}
+{{ if $alert.Labels.korean_business_context }}**업무 컨텍스트**: {{ $alert.Labels.korean_business_context }}{{ end }}
+{{ if $alert.Labels.market }}**시장**: {{ $alert.Labels.market }}{{ end }}
+{{ if $alert.Annotations.runbook_url }}**대응 가이드**: {{ $alert.Annotations.runbook_url }}{{ end }}
+{{ end }}
+{{ end }}
+
+{{ define "__korean_text" }}
+{{ template "__korean_description" . }}
+{{ end }}
+
+{{ define "korean.default.title" }}{{ template "__korean_title" . }}{{ end }}
+{{ define "korean.default.text" }}{{ template "__korean_text" . }}{{ end }}
+
+{{ define "korean.critical.title" }}🚨 [긴급] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.critical.text" }}
+**🇰🇷 한국 이커머스 긴급 알림**
+
+{{ template "__korean_text" . }}
+
+**📞 즉시 대응이 필요합니다!**
+{{ end }}
+
+{{ define "korean.payment.title" }}💳 [결제 긴급] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.payment.text" }}
+**💳 한국 결제 게이트웨이 긴급 상황**
+
+{{ template "__korean_text" . }}
+
+**🏃‍♂️ 결제팀 즉시 대응 필요**
+매출에 직접적인 영향이 있을 수 있습니다.
+{{ end }}
+
+{{ define "korean.security.title" }}🔒 [보안] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.security.text" }}
+**🔒 한국 이커머스 보안 이벤트**
+
+{{ template "__korean_text" . }}
+
+**📋 개인정보보호법(PIPA) 준수 확인 필요**
+{{ end }}
+
+{{ define "korean.business_hours.title" }}⏰ [업무시간] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.business_hours.text" }}
+**⏰ 업무시간 중 알림 (9:00-18:00 KST)**
+
+{{ template "__korean_text" . }}
+{{ end }}
+
+{{ define "korean.lunch_hour.title" }}🍚 [점심시간] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.lunch_hour.text" }}
+**🍚 점심시간 알림 (12:00-13:00 KST)**
+
+{{ template "__korean_text" . }}
+
+*점심시간 중 발생한 알림입니다. 우선순위를 고려해주세요.*
+{{ end }}
+
+{{ define "korean.peak_hours.title" }}🛒 [피크타임] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.peak_hours.text" }}
+**🛒 쇼핑 피크시간 알림 (20:00-22:00 KST)**
+
+{{ template "__korean_text" . }}
+
+**📈 높은 트래픽 시간대입니다. 즉시 확인해주세요.**
+{{ end }}
+
+{{ define "korean.weekend.title" }}📅 [주말] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.weekend.text" }}
+**📅 주말 알림**
+
+{{ template "__korean_text" . }}
+
+*주말 알림입니다. 담당자가 부재일 수 있습니다.*
+{{ end }}
+
+{{ define "korean.holiday.title" }}🎌 [공휴일] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.holiday.text" }}
+**🎌 한국 공휴일 알림**
+
+{{ template "__korean_text" . }}
+
+*공휴일 중 발생한 알림입니다. 필요시 비상 연락망을 이용해주세요.*
+{{ end }}
+
+{{ define "korean.mobile.title" }}📱 [모바일] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.mobile.text" }}
+**📱 한국 모바일 앱 알림**
+
+{{ template "__korean_text" . }}
+
+**모바일 사용자 영향**: 한국 모바일 쇼핑 트래픽의 80% 이상이 영향받을 수 있습니다.
+{{ end }}
+
+{{ define "korean.database.title" }}🗄️ [데이터베이스] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.database.text" }}
+**🗄️ 데이터베이스 알림**
+
+{{ template "__korean_text" . }}
+
+**⚠️ 데이터 무결성 및 성능에 영향이 있을 수 있습니다.**
+{{ end }}
+
+{{ define "korean.resolved.title" }}✅ [해결됨] {{ template "__korean_title" . }}{{ end }}
+{{ define "korean.resolved.text" }}
+**✅ 문제가 해결되었습니다**
+
+{{ range $i, $alert := .Alerts }}
+{{ if $i }}{{ "\n" }}{{ end }}
+**알림명**: {{ $alert.Annotations.summary }}
+**해결시간**: {{ $alert.EndsAt.Format "2006-01-02 15:04:05 KST" }}
+**지속시간**: {{ ($alert.EndsAt.Sub $alert.StartsAt).Round time.Minute }}
+{{ end }}
+
+**🎉 서비스가 정상화되었습니다.**
+{{ end }}

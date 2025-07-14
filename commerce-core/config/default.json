@@ -1,0 +1,102 @@
+{
+  "server": {
+    "type": "fastify",
+    "port": 3000,
+    "host": "0.0.0.0"
+  },
+  "database": {
+    "type": "postgresql",
+    "host": "localhost",
+    "port": 5432,
+    "username": "commerce_user",
+    "password": "commerce_pass",
+    "database": "commerce_db",
+    "synchronize": false,
+    "logging": false
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "",
+    "db": 0
+  },
+  "jwt": {
+    "secret": "your-jwt-secret-key",
+    "expiresIn": "7d"
+  },
+  "payment": {
+    "stripe": {
+      "secretKey": "",
+      "publishableKey": "",
+      "webhookSecret": ""
+    },
+    "paypal": {
+      "clientId": "",
+      "clientSecret": "",
+      "mode": "sandbox"
+    }
+  },
+  "shipping": {
+    "providers": {
+      "fedex": {
+        "accountNumber": "",
+        "meterNumber": "",
+        "key": "",
+        "password": ""
+      },
+      "ups": {
+        "accessLicenseNumber": "",
+        "userId": "",
+        "password": ""
+      }
+    }
+  },
+  "email": {
+    "provider": "smtp",
+    "smtp": {
+      "host": "smtp.gmail.com",
+      "port": 587,
+      "secure": false,
+      "auth": {
+        "user": "",
+        "pass": ""
+      }
+    }
+  },
+  "storage": {
+    "provider": "local",
+    "local": {
+      "uploadDir": "./uploads"
+    },
+    "s3": {
+      "bucket": "",
+      "region": "us-east-1",
+      "accessKeyId": "",
+      "secretAccessKey": ""
+    }
+  },
+  "cache": {
+    "ttl": 3600,
+    "checkPeriod": 600
+  },
+  "security": {
+    "bcryptRounds": 10,
+    "rateLimit": {
+      "windowMs": 60000,
+      "max": 100
+    },
+    "cors": {
+      "origin": ["http://localhost:3001"],
+      "credentials": true
+    }
+  },
+  "features": {
+    "multiCurrency": true,
+    "taxCalculation": true,
+    "inventoryTracking": true,
+    "guestCheckout": true,
+    "wishlist": true,
+    "reviews": true,
+    "recommendations": true
+  }
+}

@@ -1,0 +1,335 @@
+# ==================================================
+# Elasticsearch Configuration for Korean E-commerce
+# Optimized for Korean Text Search and Analytics
+# ==================================================
+
+# Cluster configuration
+cluster.name: korean-ecommerce-logs
+node.name: korean-ecommerce-node-1
+network.host: 0.0.0.0
+http.port: 9200
+transport.port: 9300
+
+# Path configuration
+path.data: /usr/share/elasticsearch/data
+path.logs: /usr/share/elasticsearch/logs
+
+# Bootstrap configuration
+bootstrap.memory_lock: true
+discovery.type: single-node
+
+# Korean text analysis configuration
+index:
+  # Korean analyzer settings
+  analysis:
+    analyzer:
+      korean_analyzer:
+        type: custom
+        tokenizer: korean_tokenizer
+        filter:
+          - lowercase
+          - korean_filter
+          - stop_korean
+      korean_search_analyzer:
+        type: custom
+        tokenizer: korean_tokenizer
+        filter:
+          - lowercase
+          - korean_filter
+          - stop_korean
+          - korean_synonym
+    
+    tokenizer:
+      korean_tokenizer:
+        type: nori
+        mode: mixed
+        compound_tokens: true
+        user_dictionary_rules:
+          - "카카오페이"
+          - "네이버페이"
+          - "토스페이"
+          - "나이스페이"
+          - "이커머스"
+          - "모바일앱"
+    
+    filter:
+      korean_filter:
+        type: nori_part_of_speech
+        stoptags:
+          - "E"  # Verbal endings
+          - "IC" # Interjection
+          - "J"  # Ending Particle
+          - "MAG" # General Adverb
+          - "MM"  # Modifier
+          - "SP"  # Space
+          - "SSC" # Closing Bracket
+          - "SSO" # Opening Bracket
+          - "SC"  # Separator
+          - "SE"  # Ellipsis
+          - "XPN" # Unknown
+          - "XSA" # Unknown
+          - "XSN" # Unknown
+          - "XSV" # Unknown
+          - "UNA" # Unknown
+          - "NA"  # Unknown
+          - "VSV" # Unknown
+      
+      stop_korean:
+        type: stop
+        stopwords:
+          - "그"
+          - "이"
+          - "저"
+          - "것"
+          - "들"
+          - "의"
+          - "를"
+          - "을"
+          - "에"
+          - "와"
+          - "과"
+          - "도"
+          - "로"
+          - "으로"
+          - "에서"
+          - "까지"
+      
+      korean_synonym:
+        type: synonym
+        synonyms:
+          - "카카오페이,카카오 페이,kakao pay"
+          - "네이버페이,네이버 페이,naver pay"
+          - "토스페이,토스 페이,toss pay"
+          - "결제,페이먼트,payment"
+          - "주문,오더,order"
+          - "배송,딜리버리,delivery"
+          - "환불,리펀드,refund"
+
+# Memory and performance settings for Korean logs
+indices:
+  memory:
+    index_buffer_size: 20%
+    min_index_buffer_size: 96mb
+  
+  fielddata:
+    cache:
+      size: 40%
+  
+  # Korean business hours optimization
+  breaker:
+    fielddata:
+      limit: 40%
+      overhead: 1.03
+    request:
+      limit: 60%
+      overhead: 1.0
+    total:
+      limit: 95%
+      overhead: 1.0
+
+# Korean timezone and locale settings
+http:
+  compression: true
+  compression_level: 3
+  max_content_length: 100mb
+
+# Security settings for Korean compliance (PIPA)
+xpack:
+  security:
+    enabled: false  # Set to true in production
+    transport.ssl.enabled: false
+    http.ssl.enabled: false
+  
+  monitoring:
+    collection:
+      enabled: true
+      interval: 30s
+    
+    history:
+      duration: 7d
+
+# Logging configuration
+logger:
+  level: INFO
+  
+  # Korean business specific loggers
+  org.elasticsearch.index.search.slowlog.query: WARN, korean_slow_log
+  org.elasticsearch.index.search.slowlog.fetch: WARN, korean_slow_log
+  org.elasticsearch.index.indexing.slowlog.index: WARN, korean_slow_log
+
+# Index templates for Korean e-commerce
+index_template:
+  korean_ecommerce_logs:
+    index_patterns: ["korean-ecommerce-*"]
+    settings:
+      number_of_shards: 1
+      number_of_replicas: 0
+      refresh_interval: 30s
+      
+      # Korean text optimization
+      analysis:
+        analyzer:
+          default:
+            type: korean_analyzer
+          search:
+            type: korean_search_analyzer
+      
+      # Korean business hours lifecycle
+      lifecycle:
+        name: korean_ecommerce_policy
+        rollover_alias: korean-ecommerce-logs
+    
+    mappings:
+      properties:
+        "@timestamp":
+          type: date
+          format: "strict_date_optional_time||epoch_millis"
+        
+        message:
+          type: text
+          analyzer: korean_analyzer
+          search_analyzer: korean_search_analyzer
+          fields:
+            keyword:
+              type: keyword
+              ignore_above: 256
+        
+        level:
+          type: keyword
+        
+        service:
+          type: keyword
+        
+        environment:
+          type: keyword
+        
+        market:
+          type: keyword
+        
+        korean:
+          type: object
+          properties:
+            business_hours:
+              type: boolean
+            lunch_hour:
+              type: boolean
+            peak_shopping:
+              type: boolean
+            weekend:
+              type: boolean
+            market:
+              type: keyword
+            locale:
+              type: keyword
+            currency:
+              type: keyword
+            timezone:
+              type: keyword
+        
+        payment:
+          type: object
+          properties:
+            gateway:
+              type: keyword
+            status:
+              type: keyword
+            amount:
+              type: long
+            currency:
+              type: keyword
+        
+        user:
+          type: object
+          properties:
+            id:
+              type: keyword
+            # Sensitive fields excluded for PIPA compliance
+        
+        request:
+          type: object
+          properties:
+            method:
+              type: keyword
+            url:
+              type: text
+              fields:
+                keyword:
+                  type: keyword
+            status_code:
+              type: integer
+            response_time:
+              type: long
+        
+        error:
+          type: object
+          properties:
+            type:
+              type: keyword
+            message:
+              type: text
+              analyzer: korean_analyzer
+            stack:
+              type: text
+              index: false
+
+# Index lifecycle policy for Korean business patterns
+lifecycle_policy:
+  korean_ecommerce_policy:
+    phases:
+      hot:
+        actions:
+          rollover:
+            max_size: 10gb
+            max_age: 1d
+          set_priority:
+            priority: 100
+      
+      warm:
+        min_age: 1d
+        actions:
+          set_priority:
+            priority: 50
+          allocate:
+            number_of_replicas: 0
+          forcemerge:
+            max_num_segments: 1
+      
+      cold:
+        min_age: 7d
+        actions:
+          set_priority:
+            priority: 0
+          allocate:
+            number_of_replicas: 0
+      
+      delete:
+        min_age: 30d  # Korean data retention policy
+
+# Circuit breaker settings for Korean traffic patterns
+circuit_breaker:
+  total:
+    limit: 95%
+  fielddata:
+    limit: 40%
+  request:
+    limit: 60%
+
+# Thread pool settings optimized for Korean business hours
+thread_pool:
+  search:
+    size: 13
+    queue_size: 1000
+  
+  index:
+    size: 4
+    queue_size: 200
+  
+  bulk:
+    size: 4
+    queue_size: 50
+
+# Network settings
+network:
+  tcp:
+    keep_alive: true
+    reuse_address: true

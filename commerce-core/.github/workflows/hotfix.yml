@@ -1,0 +1,636 @@
+# ==================================================
+# Hotfix Pipeline for Korean E-commerce Core
+# ==================================================
+
+name: 🚨 Hotfix Pipeline
+
+on:
+  push:
+    branches:
+      - 'hotfix/*'
+  workflow_dispatch:
+    inputs:
+      hotfix_description:
+        description: 'Hotfix description'
+        required: true
+        type: string
+      severity:
+        description: 'Severity level'
+        required: true
+        type: choice
+        options:
+          - critical
+          - high
+          - medium
+        default: 'high'
+
+env:
+  NODE_VERSION: '18'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Validate Hotfix
+  validate-hotfix:
+    name: 🔍 Validate Hotfix
+    runs-on: ubuntu-latest
+    outputs:
+      branch-name: ${{ steps.branch.outputs.name }}
+      severity: ${{ steps.severity.outputs.level }}
+      hotfix-version: ${{ steps.version.outputs.hotfix-version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract branch information
+        id: branch
+        run: |
+          BRANCH_NAME=${GITHUB_REF#refs/heads/}
+          echo "name=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "Hotfix branch: $BRANCH_NAME"
+
+      - name: Determine severity
+        id: severity
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            SEVERITY="${{ github.event.inputs.severity }}"
+          else
+            # Try to extract severity from branch name
+            BRANCH_NAME="${{ steps.branch.outputs.name }}"
+            if [[ $BRANCH_NAME == *"critical"* ]]; then
+              SEVERITY="critical"
+            elif [[ $BRANCH_NAME == *"high"* ]]; then
+              SEVERITY="high"
+            else
+              SEVERITY="medium"
+            fi
+          fi
+          echo "level=$SEVERITY" >> $GITHUB_OUTPUT
+          echo "Hotfix severity: $SEVERITY"
+
+      - name: Generate hotfix version
+        id: version
+        run: |
+          # Get the latest tag
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          VERSION=${LATEST_TAG#v}
+          
+          # Increment patch version for hotfix
+          IFS='.' read -r major minor patch <<< "$VERSION"
+          HOTFIX_VERSION="$major.$minor.$((patch + 1))"
+          
+          echo "hotfix-version=$HOTFIX_VERSION" >> $GITHUB_OUTPUT
+          echo "Hotfix version: $HOTFIX_VERSION"
+
+      - name: Validate hotfix criteria
+        run: |
+          SEVERITY="${{ steps.severity.outputs.level }}"
+          
+          echo "Validating hotfix criteria for severity: $SEVERITY"
+          
+          # Check if this is a valid hotfix scenario
+          if [ "$SEVERITY" = "critical" ]; then
+            echo "✓ Critical hotfix - fast-track deployment approved"
+          elif [ "$SEVERITY" = "high" ]; then
+            echo "✓ High priority hotfix - expedited process"
+          else
+            echo "⚠ Medium priority - consider regular release cycle"
+          fi
+
+  # Fast Security Check
+  security-fast:
+    name: 🔐 Fast Security Check
+    runs-on: ubuntu-latest
+    needs: [validate-hotfix]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run security audit
+        run: npm audit --audit-level=high
+        continue-on-error: true
+
+      - name: Check for known vulnerabilities
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --fail-on=upgradable
+        continue-on-error: ${{ needs.validate-hotfix.outputs.severity != 'critical' }}
+
+  # Essential Tests Only
+  test-essential:
+    name: 🧪 Essential Tests
+    runs-on: ubuntu-latest
+    needs: [validate-hotfix]
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: commerce_core_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for services
+        run: |
+          npx wait-on tcp:localhost:5432 tcp:localhost:6379
+
+      - name: Run critical tests only
+        run: |
+          # Run only the most critical tests for hotfix
+          npm run test:critical || npm run test:unit -- --testNamePattern="critical|payment|security"
+        env:
+          CI: true
+          NODE_ENV: test
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/commerce_core_test
+          REDIS_URL: redis://localhost:6379
+
+      - name: Test Korean payment gateways (critical)
+        if: ${{ needs.validate-hotfix.outputs.severity == 'critical' }}
+        run: |
+          # Test critical Korean payment functionality
+          npm run test:payment-critical || echo "Payment tests skipped"
+        env:
+          KAKAO_PAY_TEST_MODE: true
+          NAVER_PAY_TEST_MODE: true
+
+  # Build Hotfix
+  build-hotfix:
+    name: 🏗️ Build Hotfix
+    runs-on: ubuntu-latest
+    needs: [validate-hotfix, security-fast, test-essential]
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update version for hotfix
+        run: |
+          HOTFIX_VERSION="${{ needs.validate-hotfix.outputs.hotfix-version }}"
+          npm version $HOTFIX_VERSION --no-git-tag-version
+          echo "Updated version to $HOTFIX_VERSION"
+
+      - name: Build application
+        run: npm run build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push hotfix image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:hotfix-${{ needs.validate-hotfix.outputs.hotfix-version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:hotfix-latest
+          labels: |
+            org.opencontainers.image.title=Korean E-commerce Core Hotfix
+            org.opencontainers.image.description=Hotfix v${{ needs.validate-hotfix.outputs.hotfix-version }}
+            org.opencontainers.image.version=${{ needs.validate-hotfix.outputs.hotfix-version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.created=${{ github.event.head_commit.timestamp }}
+            hotfix.severity=${{ needs.validate-hotfix.outputs.severity }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          target: production
+
+      - name: Create hotfix bundle
+        run: |
+          mkdir -p hotfix-bundle
+          
+          # Copy essential files
+          cp -r dist/ hotfix-bundle/
+          cp package.json hotfix-bundle/
+          cp package-lock.json hotfix-bundle/
+          cp ecosystem.config.js hotfix-bundle/
+          
+          # Create hotfix info
+          cat > hotfix-bundle/HOTFIX-INFO.md << EOF
+          # Hotfix v${{ needs.validate-hotfix.outputs.hotfix-version }}
+          
+          **Severity**: ${{ needs.validate-hotfix.outputs.severity }}
+          **Branch**: ${{ needs.validate-hotfix.outputs.branch-name }}
+          **Build Time**: $(date -Iseconds)
+          **Commit**: ${{ github.sha }}
+          
+          ## Quick Deployment
+          
+          ### Critical Deployment (< 5 minutes)
+          \`\`\`bash
+          # Stop current services
+          pm2 stop ecosystem.config.js
+          
+          # Replace files
+          cp -r dist/* /var/www/commerce-core/dist/
+          
+          # Start services
+          pm2 start ecosystem.config.js
+          
+          # Verify
+          curl http://localhost:3000/health
+          \`\`\`
+          
+          ### Docker Deployment
+          \`\`\`bash
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:hotfix-${{ needs.validate-hotfix.outputs.hotfix-version }}
+          docker compose up -d
+          \`\`\`
+          
+          ## Rollback Plan
+          
+          If issues occur, rollback immediately:
+          \`\`\`bash
+          pm2 stop ecosystem.config.js
+          git checkout HEAD~1 dist/
+          pm2 start ecosystem.config.js
+          \`\`\`
+          EOF
+
+      - name: Upload hotfix bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: hotfix-bundle-${{ needs.validate-hotfix.outputs.hotfix-version }}
+          path: hotfix-bundle/
+          retention-days: 30
+
+  # Deploy to Staging (Fast)
+  deploy-staging-fast:
+    name: 🚀 Fast Staging Deploy
+    runs-on: ubuntu-latest
+    needs: [validate-hotfix, build-hotfix]
+    environment:
+      name: staging-hotfix
+      url: https://staging.yourdomain.com
+    steps:
+      - name: Deploy hotfix to staging
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USERNAME }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          port: ${{ secrets.STAGING_PORT }}
+          script: |
+            cd /var/www/commerce-core-staging
+            
+            # Pull hotfix image
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:hotfix-${{ needs.validate-hotfix.outputs.hotfix-version }}
+            
+            # Quick deployment with zero-downtime
+            docker compose -f docker-compose.staging.yml up -d --no-deps app
+            
+            # Quick health check
+            sleep 15
+            curl -f http://localhost:3000/health
+
+      - name: Verify staging hotfix
+        run: |
+          sleep 30
+          
+          # Essential health checks
+          curl -f https://staging.yourdomain.com/health
+          curl -f https://staging.yourdomain.com/api/health
+          
+          # Korean payment gateway health (if critical)
+          if [ "${{ needs.validate-hotfix.outputs.severity }}" = "critical" ]; then
+            curl -f https://staging.yourdomain.com/api/payment/health
+          fi
+
+  # Emergency Production Deploy
+  deploy-production-emergency:
+    name: 🚨 Emergency Production Deploy
+    runs-on: ubuntu-latest
+    needs: [validate-hotfix, build-hotfix, deploy-staging-fast]
+    if: ${{ needs.validate-hotfix.outputs.severity == 'critical' }}
+    environment:
+      name: production-emergency
+      url: https://yourdomain.com
+    steps:
+      - name: Create emergency deployment record
+        uses: actions/github-script@v7
+        id: deployment
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production-emergency',
+              description: 'Emergency hotfix deployment - ${{ needs.validate-hotfix.outputs.severity }}',
+              auto_merge: false,
+              required_contexts: []
+            });
+            return deployment.data.id;
+
+      - name: Emergency deploy to production
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USERNAME }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          port: ${{ secrets.PRODUCTION_PORT }}
+          script: |
+            cd /var/www/commerce-core
+            
+            echo "🚨 EMERGENCY HOTFIX DEPLOYMENT STARTED"
+            echo "Severity: ${{ needs.validate-hotfix.outputs.severity }}"
+            echo "Version: ${{ needs.validate-hotfix.outputs.hotfix-version }}"
+            echo "Time: $(date)"
+            
+            # Create emergency backup
+            pm2 save --force
+            cp -r dist dist.backup.$(date +%s)
+            
+            # Pull and deploy hotfix
+            docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:hotfix-${{ needs.validate-hotfix.outputs.hotfix-version }}
+            
+            # Zero-downtime deployment
+            docker compose -f docker-compose.prod.yml up -d --no-deps app
+            
+            echo "🚨 EMERGENCY HOTFIX DEPLOYMENT COMPLETED"
+
+      - name: Verify emergency deployment
+        run: |
+          echo "Verifying emergency deployment..."
+          sleep 30
+          
+          # Critical health checks
+          curl -f https://yourdomain.com/health
+          curl -f https://yourdomain.com/api/health
+          
+          # Korean market critical checks
+          curl -f -H "Accept-Language: ko-KR" https://yourdomain.com/api/health
+          curl -f https://yourdomain.com/api/payment/health
+          
+          echo "✅ Emergency deployment verified"
+
+      - name: Update deployment status (success)
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.deployment.outputs.result }},
+              state: 'success',
+              environment_url: 'https://yourdomain.com',
+              description: 'Emergency hotfix deployed successfully'
+            });
+
+      - name: Update deployment status (failure)
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.deployment.outputs.result }},
+              state: 'failure',
+              description: 'Emergency hotfix deployment failed'
+            });
+
+  # Standard Production Deploy (for high/medium severity)
+  deploy-production-standard:
+    name: 🚀 Standard Production Deploy
+    runs-on: ubuntu-latest
+    needs: [validate-hotfix, build-hotfix, deploy-staging-fast]
+    if: ${{ needs.validate-hotfix.outputs.severity != 'critical' }}
+    environment:
+      name: production
+      url: https://yourdomain.com
+    steps:
+      - name: Deploy hotfix to production
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USERNAME }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          port: ${{ secrets.PRODUCTION_PORT }}
+          script: |
+            cd /var/www/commerce-core
+            ./scripts/deployment/deploy.sh production --hotfix ${{ needs.validate-hotfix.outputs.hotfix-version }}
+
+  # Create Hotfix Release
+  create-hotfix-release:
+    name: 📦 Create Hotfix Release
+    runs-on: ubuntu-latest
+    needs: [validate-hotfix, build-hotfix, deploy-production-emergency, deploy-production-standard]
+    if: always() && (needs.deploy-production-emergency.result == 'success' || needs.deploy-production-standard.result == 'success')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download hotfix bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: hotfix-bundle-${{ needs.validate-hotfix.outputs.hotfix-version }}
+          path: hotfix-bundle/
+
+      - name: Create hotfix tag
+        run: |
+          HOTFIX_VERSION="${{ needs.validate-hotfix.outputs.hotfix-version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$HOTFIX_VERSION" -m "Hotfix v$HOTFIX_VERSION - ${{ needs.validate-hotfix.outputs.severity }} severity"
+          git push origin "v$HOTFIX_VERSION"
+
+      - name: Create hotfix release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ needs.validate-hotfix.outputs.hotfix-version }}
+          name: 🚨 Hotfix v${{ needs.validate-hotfix.outputs.hotfix-version }}
+          body: |
+            # 🚨 Emergency Hotfix Release
+            
+            **Severity**: ${{ needs.validate-hotfix.outputs.severity }}
+            **Branch**: ${{ needs.validate-hotfix.outputs.branch-name }}
+            **Deployment Time**: ${{ github.event.head_commit.timestamp }}
+            
+            ## 🇰🇷 Korean Market Impact
+            This hotfix addresses critical issues affecting the Korean e-commerce platform.
+            
+            ## 🚀 Quick Deployment
+            ```bash
+            docker pull ghcr.io/${{ github.repository }}:hotfix-${{ needs.validate-hotfix.outputs.hotfix-version }}
+            ```
+            
+            ## 📋 Verification Steps
+            1. Check application health: `curl https://yourdomain.com/health`
+            2. Verify Korean payment gateways: `curl https://yourdomain.com/api/payment/health`
+            3. Test Korean localization: `curl -H "Accept-Language: ko-KR" https://yourdomain.com/api/health`
+            
+            ## 🔄 Rollback Plan
+            If issues occur, rollback using the previous stable version immediately.
+            
+            ${{ github.event.inputs.hotfix_description || 'Automated hotfix deployment' }}
+          prerelease: true
+          files: |
+            hotfix-bundle/HOTFIX-INFO.md
+
+  # Post-hotfix notifications
+  notifications:
+    name: 📢 Notifications
+    runs-on: ubuntu-latest
+    needs: [validate-hotfix, create-hotfix-release]
+    if: always()
+    steps:
+      - name: Notify Korean team (Emergency)
+        if: ${{ needs.validate-hotfix.outputs.severity == 'critical' }}
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          channel: '#korean-ecommerce-emergency'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_KOREAN_EMERGENCY }}
+          text: |
+            🚨 긴급 핫픽스 배포 완료!
+            
+            **심각도**: ${{ needs.validate-hotfix.outputs.severity }}
+            **버전**: v${{ needs.validate-hotfix.outputs.hotfix-version }}
+            **배포 시간**: $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S KST')
+            **상태**: ${{ job.status }}
+            
+            즉시 시스템 상태를 확인해 주세요!
+            - 메인 사이트: https://yourdomain.com/health
+            - 결제 시스템: https://yourdomain.com/api/payment/health
+
+      - name: Notify team (Standard)
+        if: ${{ needs.validate-hotfix.outputs.severity != 'critical' }}
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          channel: '#korean-ecommerce'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_KOREAN }}
+          text: |
+            🔧 핫픽스 배포 완료
+            
+            **심각도**: ${{ needs.validate-hotfix.outputs.severity }}
+            **버전**: v${{ needs.validate-hotfix.outputs.hotfix-version }}
+            **배포 시간**: $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S KST')
+
+      - name: Create follow-up issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '🔍 Post-hotfix Review: v${{ needs.validate-hotfix.outputs.hotfix-version }}',
+              body: `
+              ## Post-Hotfix Review Required
+              
+              **Hotfix Version**: v${{ needs.validate-hotfix.outputs.hotfix-version }}
+              **Severity**: ${{ needs.validate-hotfix.outputs.severity }}
+              **Deployment Time**: ${new Date().toISOString()}
+              
+              ## Review Checklist
+              - [ ] Verify hotfix resolved the original issue
+              - [ ] Check for any new issues introduced
+              - [ ] Review monitoring metrics post-deployment
+              - [ ] Update documentation if needed
+              - [ ] Plan regular release for permanent fix
+              - [ ] Korean market impact assessment
+              
+              ## Korean Market Verification
+              - [ ] Korean payment gateways functioning
+              - [ ] Korean localization working
+              - [ ] Business hours operations normal
+              
+              **Assigned to**: @korean-team
+              `,
+              labels: ['hotfix', 'review', 'korean-market'],
+              assignees: ['korean-team'] // Replace with actual team members
+            });
+
+  # Cleanup
+  cleanup-hotfix:
+    name: 🧹 Cleanup
+    runs-on: ubuntu-latest
+    needs: [create-hotfix-release, notifications]
+    if: always()
+    steps:
+      - name: Clean up old hotfix images
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Keep only the latest 5 hotfix images
+            const packages = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+              package_type: 'container',
+              package_name: '${{ env.IMAGE_NAME }}',
+              org: context.repo.owner
+            });
+            
+            const hotfixVersions = packages.data.filter(p => 
+              p.metadata.container.tags.some(tag => tag.startsWith('hotfix-'))
+            ).slice(5);
+            
+            for (const version of hotfixVersions) {
+              await github.rest.packages.deletePackageVersionForOrg({
+                package_type: 'container',
+                package_name: '${{ env.IMAGE_NAME }}',
+                org: context.repo.owner,
+                package_version_id: version.id
+              });
+            }

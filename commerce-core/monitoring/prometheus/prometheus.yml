@@ -1,0 +1,179 @@
+# ==================================================
+# Prometheus Configuration for Korean E-commerce
+# Optimized for Korean Business Patterns
+# ==================================================
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'korean-ecommerce'
+    region: 'korea'
+    market: 'kr'
+
+# Rule files for Korean business alerts
+rule_files:
+  - "korean_business_rules.yml"
+  - "payment_gateway_rules.yml"
+  - "performance_rules.yml"
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+# Scrape configurations optimized for Korean e-commerce
+scrape_configs:
+  # Main application metrics
+  - job_name: 'korean-ecommerce-app'
+    scrape_interval: 10s
+    static_configs:
+      - targets: ['app:3000']
+    metrics_path: '/metrics'
+    scrape_timeout: 10s
+    honor_labels: true
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: 'app:3000'
+    metric_relabel_configs:
+      # Add Korean business context to metrics
+      - source_labels: [__name__]
+        regex: 'http_request_duration_seconds.*'
+        target_label: 'korean_business_metric'
+        replacement: 'true'
+
+  # Korean payment gateway monitoring
+  - job_name: 'korean-payment-gateways'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['app:3000']
+    metrics_path: '/metrics/payment'
+    params:
+      gateway: ['kakao_pay', 'naver_pay', 'toss_pay', 'nice_pay']
+    relabel_configs:
+      - source_labels: [__param_gateway]
+        target_label: payment_gateway
+
+  # Database metrics (PostgreSQL)
+  - job_name: 'postgres-exporter'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    relabel_configs:
+      - target_label: 'database_type'
+        replacement: 'postgresql'
+      - target_label: 'korean_service'
+        replacement: 'ecommerce_db'
+
+  # Redis metrics
+  - job_name: 'redis-exporter'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    relabel_configs:
+      - target_label: 'cache_type'
+        replacement: 'redis'
+      - target_label: 'korean_service'
+        replacement: 'session_cache'
+
+  # Nginx metrics
+  - job_name: 'nginx-exporter'
+    scrape_interval: 15s
+    static_configs:
+      - targets: ['nginx-exporter:9113']
+    relabel_configs:
+      - target_label: 'proxy_type'
+        replacement: 'nginx'
+      - target_label: 'korean_service'
+        replacement: 'reverse_proxy'
+
+  # Node exporter for system metrics
+  - job_name: 'node-exporter'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['node-exporter:9100']
+    relabel_configs:
+      - target_label: 'korean_region'
+        replacement: 'seoul'
+
+  # Korean business metrics (custom exporter)
+  - job_name: 'korean-business-metrics'
+    scrape_interval: 60s
+    static_configs:
+      - targets: ['app:3000']
+    metrics_path: '/metrics/korean-business'
+    params:
+      timezone: ['Asia/Seoul']
+      currency: ['KRW']
+    relabel_configs:
+      - target_label: 'metrics_type'
+        replacement: 'korean_business'
+
+  # E-commerce specific metrics
+  - job_name: 'ecommerce-metrics'
+    scrape_interval: 30s
+    static_configs:
+      - targets: ['app:3000']
+    metrics_path: '/metrics/ecommerce'
+    honor_timestamps: true
+    relabel_configs:
+      - target_label: 'service_type'
+        replacement: 'ecommerce'
+      - target_label: 'market'
+        replacement: 'korean'
+
+  # Korean CDN monitoring
+  - job_name: 'korean-cdn-metrics'
+    scrape_interval: 120s
+    static_configs:
+      - targets: ['cdn-exporter:9090']
+    relabel_configs:
+      - target_label: 'cdn_provider'
+        replacement: 'naver_cloud'
+      - target_label: 'korean_service'
+        replacement: 'static_assets'
+
+  # Mobile app metrics (Korean users)
+  - job_name: 'mobile-app-metrics'
+    scrape_interval: 60s
+    static_configs:
+      - targets: ['app:3000']
+    metrics_path: '/metrics/mobile'
+    params:
+      platform: ['android', 'ios']
+      market: ['korea']
+
+  # Korean shipping providers
+  - job_name: 'korean-shipping-metrics'
+    scrape_interval: 300s # 5 minutes
+    static_configs:
+      - targets: ['app:3000']
+    metrics_path: '/metrics/shipping'
+    params:
+      providers: ['korea_post', 'cj_logistics', 'hanjin']
+
+# Remote storage for long-term metrics (optional)
+remote_write:
+  - url: "http://victoria-metrics:8428/api/v1/write"
+    queue_config:
+      max_samples_per_send: 1000
+      batch_send_deadline: 5s
+    metadata_config:
+      send: true
+
+# Korean timezone configuration
+storage:
+  tsdb:
+    path: /prometheus
+    retention:
+      time: 30d
+      size: 10GB
+    # Optimize for Korean business patterns
+    min_block_duration: 2h
+    max_block_duration: 24h

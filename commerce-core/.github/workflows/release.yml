@@ -1,0 +1,542 @@
+# ==================================================
+# Release Pipeline for Korean E-commerce Core
+# ==================================================
+
+name: 📦 Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., v1.2.3)'
+        required: true
+        type: string
+
+env:
+  NODE_VERSION: '18'
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Validate Release
+  validate-release:
+    name: 🔍 Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+          
+          echo "version=${VERSION#v}" >> $GITHUB_OUTPUT
+          echo "tag=$VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $VERSION"
+
+      - name: Validate version format
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [[ ! $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid version format: $VERSION"
+            echo "Expected format: x.y.z (semantic versioning)"
+            exit 1
+          fi
+
+      - name: Check if tag exists
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+          else
+            echo "Tag $TAG is new"
+          fi
+
+      - name: Validate changelog
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          if [ -f "CHANGELOG.md" ]; then
+            if grep -q "## \[$VERSION\]" CHANGELOG.md; then
+              echo "Changelog entry found for version $VERSION"
+            else
+              echo "Warning: No changelog entry found for version $VERSION"
+            fi
+          else
+            echo "Warning: CHANGELOG.md not found"
+          fi
+
+  # Build Release
+  build-release:
+    name: 🏗️ Build Release
+    runs-on: ubuntu-latest
+    needs: [validate-release]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update version in package.json
+        run: |
+          VERSION="${{ needs.validate-release.outputs.version }}"
+          npm version $VERSION --no-git-tag-version
+
+      - name: Run full test suite
+        run: |
+          npm run lint
+          npm run test:unit
+          npm run test:integration
+        env:
+          CI: true
+          NODE_ENV: test
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Create release bundle
+        run: |
+          mkdir -p release
+          
+          # Copy production files
+          cp -r dist/ release/
+          cp package.json release/
+          cp package-lock.json release/
+          cp ecosystem.config.js release/
+          cp -r config/ release/
+          cp -r database/ release/
+          cp -r scripts/ release/
+          
+          # Create deployment guide
+          cat > release/DEPLOYMENT.md << EOF
+          # Korean E-commerce Core v${{ needs.validate-release.outputs.version }}
+          
+          ## Deployment Guide
+          
+          ### Prerequisites
+          - Node.js 18+
+          - PostgreSQL 15+
+          - Redis 7+
+          - PM2 (for production)
+          
+          ### Quick Start
+          \`\`\`bash
+          npm ci --production
+          npm run db:migrate
+          pm2 start ecosystem.config.js
+          \`\`\`
+          
+          ### Korean Configuration
+          - Set timezone to Asia/Seoul
+          - Configure Korean payment gateways
+          - Enable Korean locale (ko-KR)
+          
+          ### Health Check
+          \`\`\`bash
+          curl http://localhost:3000/health
+          \`\`\`
+          EOF
+          
+          # Create version info
+          cat > release/VERSION.json << EOF
+          {
+            "version": "${{ needs.validate-release.outputs.version }}",
+            "build_date": "$(date -Iseconds)",
+            "commit": "${{ github.sha }}",
+            "branch": "${{ github.ref_name }}",
+            "node_version": "${{ env.NODE_VERSION }}",
+            "korean_features": {
+              "payment_gateways": ["kakao_pay", "naver_pay", "toss_pay", "nice_pay"],
+              "localization": "ko-KR",
+              "timezone": "Asia/Seoul",
+              "currency": "KRW"
+            }
+          }
+          EOF
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-bundle-${{ needs.validate-release.outputs.version }}
+          path: release/
+          retention-days: 30
+
+  # Build Release Docker Image
+  build-release-image:
+    name: 🐳 Build Release Image
+    runs-on: ubuntu-latest
+    needs: [validate-release, build-release]
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ needs.validate-release.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.validate-release.outputs.tag }}
+            type=semver,pattern={{major}},value=${{ needs.validate-release.outputs.tag }}
+            type=raw,value=stable
+
+      - name: Build and push release image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          target: production
+          build-args: |
+            VERSION=${{ needs.validate-release.outputs.version }}
+            BUILD_DATE=$(date -Iseconds)
+            VCS_REF=${{ github.sha }}
+
+      - name: Sign container image
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign the published Docker image
+        run: |
+          cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+        env:
+          COSIGN_EXPERIMENTAL: 1
+
+      - name: Generate SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ needs.validate-release.outputs.version }}
+          path: sbom.spdx.json
+
+  # Security Scanning for Release
+  security-scan:
+    name: 🔐 Security Scan Release
+    runs-on: ubuntu-latest
+    needs: [build-release-image]
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-release-image.outputs.image-digest }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+      - name: Run Grype vulnerability scanner
+        uses: anchore/scan-action@v3
+        with:
+          image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build-release-image.outputs.image-digest }}
+          fail-build: false
+          severity-cutoff: high
+
+  # Korean Compliance Check
+  korean-compliance:
+    name: 🇰🇷 Korean Compliance Check
+    runs-on: ubuntu-latest
+    needs: [validate-release]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check Korean localization
+        run: |
+          echo "Checking Korean localization compliance..."
+          
+          # Check for Korean language files
+          if [ -d "locales/ko" ] || [ -f "locales/ko.json" ]; then
+            echo "✓ Korean localization files found"
+          else
+            echo "⚠ Korean localization files not found"
+          fi
+          
+          # Check for Korean payment gateway configurations
+          if grep -r "kakao.*pay\|naver.*pay\|toss.*pay" config/ src/ >/dev/null 2>&1; then
+            echo "✓ Korean payment gateways configured"
+          else
+            echo "⚠ Korean payment gateways not found"
+          fi
+          
+          # Check timezone configuration
+          if grep -r "Asia/Seoul" config/ src/ >/dev/null 2>&1; then
+            echo "✓ Korean timezone configured"
+          else
+            echo "⚠ Korean timezone not configured"
+          fi
+
+      - name: Validate Korean business logic
+        run: |
+          echo "Validating Korean business logic..."
+          
+          # Check for Korean tax rate (10%)
+          if grep -r "0\.1\|10%" config/ src/ | grep -i "tax" >/dev/null 2>&1; then
+            echo "✓ Korean tax rate configured"
+          else
+            echo "⚠ Korean tax rate not found"
+          fi
+          
+          # Check for Korean currency (KRW)
+          if grep -r "KRW" config/ src/ >/dev/null 2>&1; then
+            echo "✓ Korean currency (KRW) configured"
+          else
+            echo "⚠ Korean currency not found"
+          fi
+
+      - name: Check GDPR/PIPA compliance
+        run: |
+          echo "Checking privacy compliance..."
+          
+          # Check for privacy policy references
+          if grep -r "privacy\|개인정보" src/ >/dev/null 2>&1; then
+            echo "✓ Privacy policy references found"
+          else
+            echo "⚠ Privacy policy references not found"
+          fi
+
+  # Create GitHub Release
+  create-release:
+    name: 📝 Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [validate-release, build-release, build-release-image, security-scan, korean-compliance]
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-bundle-${{ needs.validate-release.outputs.version }}
+          path: release/
+
+      - name: Download SBOM
+        uses: actions/download-artifact@v4
+        with:
+          name: sbom-${{ needs.validate-release.outputs.version }}
+
+      - name: Generate release notes
+        id: release-notes
+        run: |
+          VERSION="${{ needs.validate-release.outputs.version }}"
+          
+          # Extract changelog for this version
+          if [ -f "CHANGELOG.md" ]; then
+            CHANGELOG=$(awk "/## \[$VERSION\]/{flag=1;next}/## \[/{flag=0}flag" CHANGELOG.md)
+          else
+            CHANGELOG="No changelog available for this version."
+          fi
+          
+          # Create release notes
+          cat > release-notes.md << EOF
+          # Korean E-commerce Core v$VERSION
+          
+          ## 🇰🇷 Korean Market Features
+          - Korean payment gateways (KakaoPay, NaverPay, TossPay, NicePay)
+          - Korean localization (ko-KR)
+          - Korean business hours optimization
+          - Korean tax and currency support (KRW)
+          - Korean shipping providers integration
+          
+          ## 🚀 What's Changed
+          
+          $CHANGELOG
+          
+          ## 📦 Deployment
+          
+          ### Docker
+          \`\`\`bash
+          docker pull ghcr.io/${{ github.repository }}:$VERSION
+          \`\`\`
+          
+          ### Traditional Deployment
+          1. Download the release bundle below
+          2. Extract and follow DEPLOYMENT.md instructions
+          
+          ## 🔐 Security
+          - Container image signed with Cosign
+          - SBOM included for supply chain security
+          - Vulnerability scanned with Trivy and Grype
+          
+          ## 🌏 Korean Business Hours
+          - Optimized for Korean business patterns
+          - Peak hours: 12-13 PM, 20-22 PM KST
+          - Support for Korean holidays and weekend patterns
+          
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/v$(git describe --tags --abbrev=0 HEAD^)...${{ needs.validate-release.outputs.tag }}
+          EOF
+
+      - name: Create release archive
+        run: |
+          cd release
+          tar -czf ../korean-ecommerce-core-${{ needs.validate-release.outputs.version }}.tar.gz .
+          cd ..
+          zip -r korean-ecommerce-core-${{ needs.validate-release.outputs.version }}.zip release/
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.validate-release.outputs.tag }}
+          name: Korean E-commerce Core ${{ needs.validate-release.outputs.tag }}
+          body_path: release-notes.md
+          draft: false
+          prerelease: ${{ contains(needs.validate-release.outputs.version, '-') }}
+          files: |
+            korean-ecommerce-core-${{ needs.validate-release.outputs.version }}.tar.gz
+            korean-ecommerce-core-${{ needs.validate-release.outputs.version }}.zip
+            sbom.spdx.json
+            release/VERSION.json
+            release/DEPLOYMENT.md
+
+  # Deploy to Production (if stable release)
+  deploy-production:
+    name: 🚀 Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [validate-release, create-release]
+    if: ${{ !contains(needs.validate-release.outputs.version, '-') }}
+    environment:
+      name: production
+      url: https://yourdomain.com
+    steps:
+      - name: Deploy to production
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.PRODUCTION_HOST }}
+          username: ${{ secrets.PRODUCTION_USERNAME }}
+          key: ${{ secrets.PRODUCTION_SSH_KEY }}
+          port: ${{ secrets.PRODUCTION_PORT }}
+          script: |
+            cd /var/www/commerce-core
+            
+            # Download and deploy new version
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.validate-release.outputs.version }}
+            
+            # Update docker-compose to use new version
+            sed -i 's/image: ghcr.io\/${{ github.repository }}:.*/image: ghcr.io\/${{ github.repository }}:${{ needs.validate-release.outputs.version }}/' docker-compose.prod.yml
+            
+            # Deploy with zero-downtime
+            docker compose -f docker-compose.prod.yml up -d --no-deps app
+            
+            # Wait and verify
+            sleep 30
+            ./scripts/health-check.sh comprehensive
+
+      - name: Verify production deployment
+        run: |
+          sleep 60
+          
+          # Health checks
+          curl -f https://yourdomain.com/health
+          curl -f https://yourdomain.com/api/health
+          
+          # Korean-specific verification
+          curl -f -H "Accept-Language: ko-KR" https://yourdomain.com/api/health
+
+  # Post-release tasks
+  post-release:
+    name: 📋 Post-release Tasks
+    runs-on: ubuntu-latest
+    needs: [validate-release, create-release]
+    if: always() && needs.create-release.result == 'success'
+    steps:
+      - name: Update documentation
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // Create issue for documentation updates
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: '📖 Update documentation for v${{ needs.validate-release.outputs.version }}',
+              body: `
+              ## Post-release Documentation Tasks
+              
+              - [ ] Update README.md with new version
+              - [ ] Update API documentation
+              - [ ] Update Korean localization guides
+              - [ ] Update deployment documentation
+              - [ ] Update Korean payment gateway integration docs
+              - [ ] Create release announcement for Korean team
+              
+              **Release**: ${{ needs.validate-release.outputs.tag }}
+              **Date**: ${new Date().toISOString()}
+              `,
+              labels: ['documentation', 'korean-market', 'release']
+            });
+
+      - name: Notify Korean team
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          channel: '#korean-ecommerce-releases'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK_KOREAN }}
+          text: |
+            🎉 새로운 한국 이커머스 코어 버전이 출시되었습니다!
+            
+            **버전**: ${{ needs.validate-release.outputs.tag }}
+            **릴리스 노트**: https://github.com/${{ github.repository }}/releases/tag/${{ needs.validate-release.outputs.tag }}
+            **배포 시간**: $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M:%S KST')
+            
+            주요 한국 시장 기능:
+            • 한국 결제 게이트웨이 지원
+            • 한국어 현지화
+            • 한국 비즈니스 시간 최적화
+            • KRW 통화 및 세금 지원
+
+      - name: Update project board
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // This would update your project board with release information
+            console.log('Release v${{ needs.validate-release.outputs.version }} completed successfully');
+            
+            // Add any project board automation here
+            // Update milestone, close related issues, etc.

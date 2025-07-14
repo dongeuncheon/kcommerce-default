@@ -1,0 +1,221 @@
+# ==================================================
+# Filebeat Configuration for Korean E-commerce
+# Log Collection and Shipping
+# ==================================================
+
+filebeat.inputs:
+  # Korean E-commerce Application Logs
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/korean-ecommerce/app.log
+      - /var/log/korean-ecommerce/app-*.log
+    fields:
+      service: korean-ecommerce-app
+      environment: production
+      market: korean
+      timezone: Asia/Seoul
+    fields_under_root: true
+    multiline.pattern: '^\d{4}-\d{2}-\d{2}'
+    multiline.negate: true
+    multiline.match: after
+    encoding: utf-8
+
+  # Korean Payment Gateway Logs
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/korean-ecommerce/payment-*.log
+    fields:
+      service: korean-payment-gateway
+      environment: production
+      market: korean
+      log_type: payment
+    processors:
+      - add_fields:
+          target: korean
+          fields:
+            business_hours: true
+            compliance_required: true
+
+  # Korean Mobile App Logs
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/korean-ecommerce/mobile-*.log
+    fields:
+      service: korean-mobile-app
+      platform: mobile
+      market: korean
+    json.keys_under_root: true
+    json.add_error_key: true
+
+  # Korean Business Metrics Logs
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/korean-ecommerce/business-metrics.log
+    fields:
+      service: korean-business-metrics
+      log_type: metrics
+      market: korean
+    processors:
+      - timestamp:
+          field: timestamp
+          layouts:
+            - '2006-01-02T15:04:05.999Z'
+            - '2006-01-02T15:04:05.999-07:00'
+          timezone: Asia/Seoul
+
+  # Korean Security Logs
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/korean-ecommerce/security.log
+      - /var/log/korean-ecommerce/fraud-detection.log
+    fields:
+      service: korean-security
+      log_type: security
+      priority: high
+    processors:
+      - add_fields:
+          target: korean_compliance
+          fields:
+            pipa_compliance: true
+            audit_required: true
+
+  # Korean Database Logs
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/postgresql/postgresql-*.log
+    fields:
+      service: postgresql
+      database_type: primary
+      market: korean
+    multiline.pattern: '^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}'
+    multiline.negate: true
+    multiline.match: after
+
+  # Korean CDN Access Logs
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/nginx/korean-*.log
+    fields:
+      service: korean-cdn
+      log_type: access
+      region: korea
+    processors:
+      - dissect:
+          tokenizer: '%{client_ip} - %{user} [%{timestamp}] "%{method} %{url} %{protocol}" %{status} %{bytes} "%{referer}" "%{user_agent}"'
+          field: "message"
+
+# Korean Business Hours Processing
+processors:
+  # Add Korean timezone
+  - timestamp:
+      field: '@timestamp'
+      layouts:
+        - '2006-01-02T15:04:05.999Z'
+      timezone: Asia/Seoul
+
+  # Add Korean business context
+  - script:
+      lang: javascript
+      source: >
+        function process(event) {
+          var timestamp = event.Get('@timestamp');
+          var hour = timestamp.getHours();
+          var dayOfWeek = timestamp.getDay();
+          
+          // Korean business hours (9-18, Monday-Friday)
+          var isBusinessHours = (dayOfWeek >= 1 && dayOfWeek <= 5) && (hour >= 9 && hour < 18);
+          var isLunchHour = (hour >= 12 && hour < 13);
+          var isPeakShopping = (hour >= 20 && hour < 22);
+          var isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+          
+          event.Put('korean.business_hours', isBusinessHours);
+          event.Put('korean.lunch_hour', isLunchHour);
+          event.Put('korean.peak_shopping', isPeakShopping);
+          event.Put('korean.weekend', isWeekend);
+          
+          return event;
+        }
+
+  # Korean market classification
+  - add_fields:
+      target: korean
+      fields:
+        market: kr
+        locale: ko-KR
+        currency: KRW
+        timezone: Asia/Seoul
+
+  # Remove sensitive data for PIPA compliance
+  - drop_fields:
+      fields: 
+        - "user.email"
+        - "user.phone"
+        - "payment.card_number"
+        - "payment.account_number"
+      when:
+        not:
+          equals:
+            log_type: "audit"
+
+# Output Configuration
+output.loki:
+  host: "http://loki:3100/loki/api/v1/push"
+  tenant_id: "korean-ecommerce"
+  labels:
+    service: "%{[service]}"
+    environment: "%{[environment]}"
+    market: "korean"
+  timeout: 10s
+  bulk_max_size: 1024
+  worker: 1
+
+# Alternative output to Elasticsearch (if needed)
+# output.elasticsearch:
+#   hosts: ["elasticsearch:9200"]
+#   index: "korean-ecommerce-logs-%{+yyyy.MM.dd}"
+#   template.name: "korean-ecommerce"
+#   template.pattern: "korean-ecommerce-*"
+#   template.settings:
+#     index.number_of_shards: 1
+#     index.number_of_replicas: 0
+
+# Logging configuration
+logging:
+  level: info
+  to_files: true
+  files:
+    path: /var/log/filebeat
+    name: filebeat.log
+    keepfiles: 7
+    permissions: 0644
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  elasticsearch:
+    hosts: ["elasticsearch:9200"]
+    index: "filebeat-monitoring"
+
+# Korean holiday calendar integration
+setup.ilm:
+  enabled: false
+
+# HTTP endpoint for health checks
+http:
+  enabled: true
+  host: "0.0.0.0"
+  port: 5066
+
+# X-Pack features
+xpack:
+  monitoring:
+    enabled: true
+    elasticsearch:
+      hosts: ["elasticsearch:9200"]

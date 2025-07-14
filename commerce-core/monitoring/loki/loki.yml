@@ -1,0 +1,134 @@
+# ==================================================
+# Loki Configuration for Korean E-commerce Log Storage
+# Optimized for Korean Business Patterns
+# ==================================================
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
+
+common:
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    instance_addr: 127.0.0.1
+    kvstore:
+      store: inmemory
+
+# Korean timezone configuration
+limits_config:
+  enforce_metric_name: false
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h  # 1 주일
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  max_line_size: 256000
+  max_streams_per_user: 10000
+  max_global_streams_per_user: 5000
+
+schema_config:
+  configs:
+    - from: 2023-01-01
+      store: boltdb-shipper
+      object_store: filesystem
+      schema: v11
+      index:
+        prefix: korean_ecommerce_index_
+        period: 24h
+
+storage_config:
+  boltdb_shipper:
+    active_index_directory: /loki/boltdb-shipper-active
+    cache_location: /loki/boltdb-shipper-cache
+    cache_ttl: 24h
+    shared_store: filesystem
+  filesystem:
+    directory: /loki/chunks
+
+chunk_store_config:
+  max_look_back_period: 168h  # 1주일간 로그 보관
+
+table_manager:
+  retention_deletes_enabled: true
+  retention_period: 168h  # 1주일 보관
+
+# Korean business patterns optimization
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+  rule_path: /loki/rules
+  alertmanager_url: http://alertmanager:9093
+  ring:
+    kvstore:
+      store: inmemory
+  enable_api: true
+  enable_alertmanager_v2: true
+
+# Korean log parsing rules
+analytics:
+  reporting_enabled: false
+
+# Korean business hours configuration
+query_range:
+  align_queries_with_step: true
+  max_retries: 5
+  parallelise_shardable_queries: true
+  cache_results: true
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
+
+# Korean market specific log retention
+compactor:
+  working_directory: /loki/compactor
+  shared_store: filesystem
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  retention_delete_worker_count: 150
+
+# Log ingestion limits for Korean traffic patterns
+ingester:
+  lifecycler:
+    address: 127.0.0.1
+    ring:
+      kvstore:
+        store: inmemory
+      replication_factor: 1
+    final_sleep: 0s
+  chunk_idle_period: 5m
+  chunk_retain_period: 30s
+  max_chunk_age: 1h
+  chunk_target_size: 1536000
+  chunk_encoding: snappy
+  max_transfer_retries: 0
+
+# Korean timezone aware querying
+querier:
+  query_timeout: 1m
+  tail_max_duration: 1h
+  extra_query_delay: 0s
+
+query_scheduler:
+  max_outstanding_requests_per_tenant: 256
+
+frontend:
+  max_outstanding_per_tenant: 256
+  compress_responses: true
+
+# Korean log structure configuration
+limits_config:
+  split_queries_by_interval: 15m
+  max_query_length: 721h  # ~30일
+  max_query_parallelism: 32

@@ -1,0 +1,423 @@
+# ==================================================
+# Naver Cloud Platform Deployment Configuration
+# Korean E-commerce Core
+# ==================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: korean-ecommerce
+  labels:
+    environment: production
+    region: kr-central-1
+    provider: naver-cloud-platform
+
+---
+# ConfigMap for Korean market configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: korean-config
+  namespace: korean-ecommerce
+data:
+  # Korean market settings
+  LOCALE: "ko-KR"
+  TIMEZONE: "Asia/Seoul"
+  CURRENCY: "KRW"
+  TAX_RATE: "0.1"
+  
+  # Korean business hours
+  BUSINESS_HOURS_START: "09:00"
+  BUSINESS_HOURS_END: "18:00"
+  LUNCH_BREAK_START: "12:00"
+  LUNCH_BREAK_END: "13:00"
+  
+  # Korean holidays (major ones)
+  KOREAN_HOLIDAYS: |
+    2024-01-01,2024-02-09,2024-02-10,2024-02-11,2024-02-12,
+    2024-03-01,2024-05-05,2024-05-15,2024-06-06,2024-08-15,
+    2024-09-16,2024-09-17,2024-09-18,2024-10-03,2024-10-09,
+    2024-12-25
+  
+  # CDN and static assets
+  CDN_URL: "https://kr.object.ncloudstorage.com/commerce-assets"
+  STATIC_ASSETS_URL: "https://commerce-static.kr"
+  
+  # Korean payment gateway endpoints
+  KAKAO_PAY_API_URL: "https://kapi.kakao.com"
+  NAVER_PAY_API_URL: "https://apis.naver.com/naverpay-partner"
+  TOSS_PAY_API_URL: "https://api.tosspayments.com"
+  NICE_PAY_API_URL: "https://api.nicepay.co.kr"
+  
+  # Korean logistics providers
+  KOREA_POST_API_URL: "https://trace.epost.go.kr"
+  CJ_LOGISTICS_API_URL: "https://www.doortodoor.co.kr"
+  HANJIN_API_URL: "https://www.hanjin.co.kr"
+  
+  # Monitoring
+  SENTRY_ENVIRONMENT: "ncp-production"
+  NEW_RELIC_APP_NAME: "korean-ecommerce-ncp"
+
+---
+# Secret for sensitive Korean service credentials
+apiVersion: v1
+kind: Secret
+metadata:
+  name: korean-service-secrets
+  namespace: korean-ecommerce
+type: Opaque
+data:
+  # Payment gateway secrets (base64 encoded)
+  KAKAO_PAY_ADMIN_KEY: ""
+  KAKAO_PAY_SECRET: ""
+  NAVER_PAY_CLIENT_SECRET: ""
+  NAVER_PAY_MERCHANT_KEY: ""
+  TOSS_PAY_SECRET_KEY: ""
+  NICE_PAY_LICENSE_KEY: ""
+  NICE_PAY_CANCEL_PASSWORD: ""
+  
+  # SMS service secrets
+  COOLSMS_API_SECRET: ""
+  ALIGO_API_KEY: ""
+  
+  # Email service secrets
+  NAVER_WORKS_PASSWORD: ""
+  
+  # Database credentials
+  DATABASE_PASSWORD: ""
+  REDIS_PASSWORD: ""
+
+---
+# PersistentVolume for Korean data compliance
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: korean-data-pv
+  labels:
+    region: kr-central-1
+    compliance: korean-data-protection
+spec:
+  capacity:
+    storage: 100Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: ncp-ssd
+  hostPath:
+    path: /data/korean-ecommerce
+
+---
+# PersistentVolumeClaim
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: korean-data-pvc
+  namespace: korean-ecommerce
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: ncp-ssd
+
+---
+# Deployment for Korean E-commerce Core
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: korean-ecommerce-core
+  namespace: korean-ecommerce
+  labels:
+    app: korean-ecommerce-core
+    version: v1.0.0
+    market: korean
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: korean-ecommerce-core
+  template:
+    metadata:
+      labels:
+        app: korean-ecommerce-core
+        market: korean
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3000"
+        prometheus.io/path: "/metrics"
+    spec:
+      # Korean timezone and locale setup
+      initContainers:
+      - name: setup-korean-locale
+        image: alpine:latest
+        command: ['sh', '-c']
+        args:
+        - |
+          apk add --no-cache tzdata
+          cp /usr/share/zoneinfo/Asia/Seoul /etc/localtime
+          echo "Asia/Seoul" > /etc/timezone
+        volumeMounts:
+        - name: timezone-config
+          mountPath: /etc/localtime
+          subPath: localtime
+      
+      containers:
+      - name: korean-ecommerce-core
+        image: ghcr.io/your-org/commerce-core:latest
+        ports:
+        - containerPort: 3000
+          name: http
+        - containerPort: 9229
+          name: debug
+        
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: PORT
+          value: "3000"
+        
+        # Korean market configuration
+        envFrom:
+        - configMapRef:
+            name: korean-config
+        - secretRef:
+            name: korean-service-secrets
+        
+        # Database configuration
+        - name: DATABASE_URL
+          value: "postgresql://commerce:$(DATABASE_PASSWORD)@postgres:5432/commerce_core"
+        - name: REDIS_URL
+          value: "redis://:$(REDIS_PASSWORD)@redis:6379"
+        
+        # Health checks optimized for Korean business hours
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 3000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 3000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 2
+        
+        # Resource limits optimized for Korean traffic patterns
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+        
+        # Volume mounts
+        volumeMounts:
+        - name: timezone-config
+          mountPath: /etc/localtime
+          subPath: localtime
+        - name: korean-data
+          mountPath: /app/data
+        - name: app-logs
+          mountPath: /app/logs
+      
+      # Sidecar for Korean monitoring
+      - name: korean-metrics-exporter
+        image: prom/node-exporter:latest
+        ports:
+        - containerPort: 9100
+          name: metrics
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      
+      volumes:
+      - name: timezone-config
+        emptyDir: {}
+      - name: korean-data
+        persistentVolumeClaim:
+          claimName: korean-data-pvc
+      - name: app-logs
+        emptyDir: {}
+      
+      # Node affinity for Korean region
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: region
+                operator: In
+                values:
+                - kr-central-1
+              - key: zone
+                operator: In
+                values:
+                - kr-central-1a
+                - kr-central-1b
+      
+      # Pod anti-affinity for high availability
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - korean-ecommerce-core
+            topologyKey: kubernetes.io/hostname
+
+---
+# Service for Korean E-commerce Core
+apiVersion: v1
+kind: Service
+metadata:
+  name: korean-ecommerce-service
+  namespace: korean-ecommerce
+  labels:
+    app: korean-ecommerce-core
+    market: korean
+  annotations:
+    service.beta.kubernetes.io/ncloud-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/ncloud-load-balancer-protocol-type: "TCP"
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 3000
+    protocol: TCP
+    name: http
+  - port: 443
+    targetPort: 3000
+    protocol: TCP
+    name: https
+  selector:
+    app: korean-ecommerce-core
+
+---
+# HorizontalPodAutoscaler for Korean traffic patterns
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: korean-ecommerce-hpa
+  namespace: korean-ecommerce
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: korean-ecommerce-core
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  
+  # Korean business hours scaling behavior
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+
+---
+# NetworkPolicy for Korean compliance
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: korean-ecommerce-network-policy
+  namespace: korean-ecommerce
+spec:
+  podSelector:
+    matchLabels:
+      app: korean-ecommerce-core
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: ingress-nginx
+    ports:
+    - protocol: TCP
+      port: 3000
+  
+  egress:
+  - to: []
+    ports:
+    - protocol: TCP
+      port: 443  # HTTPS for Korean APIs
+    - protocol: TCP
+      port: 5432  # PostgreSQL
+    - protocol: TCP
+      port: 6379  # Redis
+    - protocol: TCP
+      port: 53   # DNS
+    - protocol: UDP
+      port: 53   # DNS
+
+---
+# ServiceMonitor for Prometheus (Korean business hours aware)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: korean-ecommerce-monitor
+  namespace: korean-ecommerce
+  labels:
+    app: korean-ecommerce-core
+    market: korean
+spec:
+  selector:
+    matchLabels:
+      app: korean-ecommerce-core
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 30s
+    scrapeTimeout: 10s
+    honorLabels: true
+    metricRelabelings:
+    - sourceLabels: [__name__]
+      regex: 'korean_business_hours_.*'
+      targetLabel: 'korean_metric'
+      replacement: 'true'

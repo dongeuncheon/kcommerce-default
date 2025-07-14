@@ -1,0 +1,268 @@
+# ==================================================
+# Alertmanager Configuration for Korean E-commerce
+# Korean Business Hours Aware Alerting
+# ==================================================
+
+global:
+  # Korean timezone for alert timestamps
+  smtp_smarthost: 'localhost:587'
+  smtp_from: 'alerts@yourdomain.kr'
+  smtp_auth_username: 'alerts@yourdomain.kr'
+  smtp_auth_password: 'your-email-password'
+  
+  # Korean Slack configuration
+  slack_api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+  
+  # Korean SMS gateway (using Korean SMS services)
+  # Configure with Korean SMS providers like NHN Toast, SENS, etc.
+
+# Templates for Korean notifications
+templates:
+  - '/etc/alertmanager/templates/korean.tmpl'
+
+# Route configuration for Korean business patterns
+route:
+  group_by: ['alertname', 'cluster', 'service', 'korean_business_context']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'korean-default'
+  
+  routes:
+    # Critical alerts during Korean business hours
+    - match:
+        severity: critical
+      receiver: 'korean-critical-business-hours'
+      group_wait: 10s
+      repeat_interval: 30m
+      routes:
+        # Payment gateway issues (immediate response)
+        - match_re:
+            alertname: '(KakaoPayHighErrorRate|NaverPaySlowResponse|TossPayConnectionFailure|MultiplePaymentGatewaysDown)'
+          receiver: 'korean-payment-emergency'
+          group_wait: 5s
+          repeat_interval: 10m
+        
+        # Security incidents (immediate response)
+        - match:
+            security_alert: 'true'
+          receiver: 'korean-security-team'
+          group_wait: 5s
+          repeat_interval: 15m
+
+    # Korean business hours alerts (9 AM - 6 PM KST, Mon-Fri)
+    - match:
+        korean_business_context: 'korean_business_hours'
+      receiver: 'korean-business-hours-team'
+      group_wait: 2m
+      repeat_interval: 2h
+
+    # Korean lunch hour alerts (12 PM - 1 PM KST)
+    - match:
+        korean_business_context: 'korean_lunch_hour'
+      receiver: 'korean-lunch-hour-team'
+      group_wait: 5m
+      repeat_interval: 3h
+
+    # Korean peak shopping hours (8 PM - 10 PM KST)
+    - match:
+        korean_business_context: 'korean_evening_rush'
+      receiver: 'korean-peak-hours-team'
+      group_wait: 1m
+      repeat_interval: 1h
+
+    # Weekend alerts (less urgent)
+    - match:
+        korean_business_context: 'korean_weekend'
+      receiver: 'korean-weekend-team'
+      group_wait: 10m
+      repeat_interval: 6h
+
+    # Korean holiday alerts
+    - match:
+        korean_business_context: 'korean_holiday'
+      receiver: 'korean-holiday-team'
+      group_wait: 15m
+      repeat_interval: 8h
+
+    # Mobile app specific alerts
+    - match:
+        platform: 'mobile'
+        market: 'korea'
+      receiver: 'korean-mobile-team'
+      group_wait: 3m
+      repeat_interval: 2h
+
+    # Database alerts
+    - match_re:
+        alertname: '(DatabaseConnectionPoolExhaustion|RedisMemoryUsageHigh)'
+      receiver: 'korean-database-team'
+      group_wait: 2m
+      repeat_interval: 1h
+
+# Inhibition rules for Korean business patterns
+inhibit_rules:
+  # Don't alert on low priority during high priority incidents
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'service']
+
+  # Don't alert on individual instances if load balancer is down
+  - source_match:
+      alertname: 'LoadBalancerDown'
+    target_match_re:
+      alertname: '(InstanceDown|HighCPU|HighMemory)'
+
+  # Korean business hours context inhibition
+  - source_match:
+      korean_business_context: 'korean_business_hours'
+      severity: 'critical'
+    target_match:
+      korean_business_context: 'korean_business_hours'
+      severity: 'warning'
+
+# Receivers configuration
+receivers:
+  # Default Korean team
+  - name: 'korean-default'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#korean-ecommerce-alerts'
+        title: '🇰🇷 한국 이커머스 알림'
+        text: |
+          {{ range .Alerts }}
+          **알림**: {{ .Annotations.summary }}
+          **설명**: {{ .Annotations.description }}
+          **시간**: {{ .StartsAt.Format "2006-01-02 15:04:05 KST" }}
+          **심각도**: {{ .Labels.severity }}
+          {{ end }}
+        title_link: 'http://alertmanager:9093'
+
+  # Critical alerts during business hours
+  - name: 'korean-critical-business-hours'
+    email_configs:
+      - to: 'korean-ops@yourdomain.kr'
+        subject: '🚨 [긴급] 한국 이커머스 시스템 장애'
+        body: |
+          긴급 알림이 발생했습니다.
+          
+          {{ range .Alerts }}
+          알림명: {{ .Annotations.summary }}
+          설명: {{ .Annotations.description }}
+          발생시간: {{ .StartsAt.Format "2006-01-02 15:04:05 KST" }}
+          심각도: {{ .Labels.severity }}
+          {{ end }}
+          
+          즉시 확인 및 대응이 필요합니다.
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#korean-emergency'
+        title: '🚨 [긴급] 한국 이커머스 시스템 장애'
+        text: '@channel 긴급 알림 발생'
+
+  # Payment gateway emergency
+  - name: 'korean-payment-emergency'
+    email_configs:
+      - to: 'payment-team@yourdomain.kr'
+        subject: '💳 [결제 긴급] 한국 결제 게이트웨이 장애'
+        body: |
+          한국 결제 게이트웨이에 장애가 발생했습니다.
+          
+          {{ range .Alerts }}
+          결제사: {{ .Labels.payment_gateway }}
+          알림: {{ .Annotations.summary }}
+          설명: {{ .Annotations.description }}
+          발생시간: {{ .StartsAt.Format "2006-01-02 15:04:05 KST" }}
+          {{ end }}
+          
+          즉시 결제팀 대응이 필요합니다.
+    # Korean SMS notification (configure with Korean SMS provider)
+    webhook_configs:
+      - url: 'http://korean-sms-gateway:8080/send'
+        send_resolved: true
+        http_config:
+          basic_auth:
+            username: 'sms_user'
+            password: 'sms_password'
+
+  # Security team alerts
+  - name: 'korean-security-team'
+    email_configs:
+      - to: 'security@yourdomain.kr'
+        subject: '🔒 [보안] 한국 이커머스 보안 이벤트'
+        body: |
+          보안 이벤트가 감지되었습니다.
+          
+          {{ range .Alerts }}
+          이벤트: {{ .Annotations.summary }}
+          설명: {{ .Annotations.description }}
+          발생시간: {{ .StartsAt.Format "2006-01-02 15:04:05 KST" }}
+          컴플라이언스: {{ .Labels.korean_compliance }}
+          {{ end }}
+
+  # Business hours team
+  - name: 'korean-business-hours-team'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#korean-business-hours'
+        title: '⏰ 업무시간 중 알림'
+        text: |
+          {{ range .Alerts }}
+          **{{ .Annotations.summary }}**
+          {{ .Annotations.description }}
+          시간: {{ .StartsAt.Format "15:04 KST" }}
+          {{ end }}
+
+  # Lunch hour team (reduced priority)
+  - name: 'korean-lunch-hour-team'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#korean-lunch-alerts'
+        title: '🍚 점심시간 알림'
+        text: |
+          점심시간 중 알림이 발생했습니다.
+          {{ range .Alerts }}
+          {{ .Annotations.summary }}
+          {{ end }}
+
+  # Peak hours team
+  - name: 'korean-peak-hours-team'
+    email_configs:
+      - to: 'korean-peak-ops@yourdomain.kr'
+        subject: '🛒 [피크타임] 한국 쇼핑 피크시간 알림'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#korean-peak-hours'
+        title: '🛒 쇼핑 피크시간 알림'
+
+  # Weekend team
+  - name: 'korean-weekend-team'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#korean-weekend'
+        title: '📅 주말 알림'
+
+  # Holiday team
+  - name: 'korean-holiday-team'
+    email_configs:
+      - to: 'korean-holiday-ops@yourdomain.kr'
+        subject: '🎌 [공휴일] 한국 공휴일 알림'
+
+  # Mobile team
+  - name: 'korean-mobile-team'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#korean-mobile'
+        title: '📱 한국 모바일 앱 알림'
+
+  # Database team
+  - name: 'korean-database-team'
+    email_configs:
+      - to: 'korean-db@yourdomain.kr'
+        subject: '🗄️ [데이터베이스] 한국 이커머스 DB 알림'
+    slack_configs:
+      - api_url: 'https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK'
+        channel: '#korean-database'
+        title: '🗄️ 데이터베이스 알림'

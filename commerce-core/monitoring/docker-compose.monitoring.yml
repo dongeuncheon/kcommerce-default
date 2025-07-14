@@ -1,0 +1,384 @@
+# ==================================================
+# Docker Compose for Korean E-commerce Monitoring Stack
+# Complete monitoring infrastructure for Korean business patterns
+# ==================================================
+
+version: '3.8'
+
+networks:
+  korean-monitoring:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+
+volumes:
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local
+  elasticsearch_data:
+    driver: local
+  loki_data:
+    driver: local
+  alertmanager_data:
+    driver: local
+
+services:
+  # Prometheus for Korean E-commerce Metrics
+  prometheus:
+    image: prom/prometheus:v2.47.0
+    container_name: korean-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--storage.tsdb.retention.size=10GB'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/korean_business_rules.yml:/etc/prometheus/korean_business_rules.yml:ro
+      - prometheus_data:/prometheus
+    networks:
+      - korean-monitoring
+    environment:
+      - TZ=Asia/Seoul
+    labels:
+      - "com.korean-ecommerce.monitoring=prometheus"
+      - "com.korean-ecommerce.environment=production"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana for Korean E-commerce Dashboards
+  grafana:
+    image: grafana/grafana:10.1.0
+    container_name: korean-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/korean-ecommerce-dashboard.json:/var/lib/grafana/dashboards/korean-ecommerce-dashboard.json:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks:
+      - korean-monitoring
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=korean-admin-2023
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_INSTALL_PLUGINS=grafana-clock-panel,grafana-simple-json-datasource,grafana-worldmap-panel
+      - GF_DEFAULT_TIMEZONE=Asia/Seoul
+      - GF_DATE_FORMATS_DEFAULT_TIMEZONE=Asia/Seoul
+      - GF_SERVER_ROOT_URL=http://grafana.korean-ecommerce.local:3001
+      - TZ=Asia/Seoul
+    labels:
+      - "com.korean-ecommerce.monitoring=grafana"
+      - "com.korean-ecommerce.environment=production"
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Alertmanager for Korean Business Hours Alerting
+  alertmanager:
+    image: prom/alertmanager:v0.26.0
+    container_name: korean-alertmanager
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+      - '--web.external-url=http://alertmanager.korean-ecommerce.local:9093'
+      - '--cluster.listen-address=0.0.0.0:9094'
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ./alertmanager/templates:/etc/alertmanager/templates:ro
+      - alertmanager_data:/alertmanager
+    networks:
+      - korean-monitoring
+    environment:
+      - TZ=Asia/Seoul
+    labels:
+      - "com.korean-ecommerce.monitoring=alertmanager"
+      - "com.korean-ecommerce.environment=production"
+    depends_on:
+      - prometheus
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Elasticsearch for Korean Log Analytics
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.9.0
+    container_name: korean-elasticsearch
+    restart: unless-stopped
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+      - ./elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml:ro
+    networks:
+      - korean-monitoring
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms2g -Xmx2g
+      - xpack.security.enabled=false
+      - xpack.monitoring.collection.enabled=true
+      - TZ=Asia/Seoul
+      - LANG=ko_KR.UTF-8
+      - LC_ALL=ko_KR.UTF-8
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    labels:
+      - "com.korean-ecommerce.monitoring=elasticsearch"
+      - "com.korean-ecommerce.environment=production"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  # Loki for Korean Log Storage
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: korean-loki
+    restart: unless-stopped
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./loki/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki_data:/loki
+    networks:
+      - korean-monitoring
+    environment:
+      - TZ=Asia/Seoul
+    labels:
+      - "com.korean-ecommerce.monitoring=loki"
+      - "com.korean-ecommerce.environment=production"
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Filebeat for Korean Log Collection
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.9.0
+    container_name: korean-filebeat
+    restart: unless-stopped
+    user: root
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - /var/log:/host/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - korean-monitoring
+    environment:
+      - TZ=Asia/Seoul
+      - ELASTIC_HOSTS=elasticsearch:9200
+      - LOKI_HOST=http://loki:3100
+    labels:
+      - "com.korean-ecommerce.monitoring=filebeat"
+      - "com.korean-ecommerce.environment=production"
+    depends_on:
+      - elasticsearch
+      - loki
+    command: ["filebeat", "-e", "-strict.perms=false"]
+
+  # Node Exporter for Korean Server Metrics
+  node-exporter:
+    image: prom/node-exporter:v1.6.1
+    container_name: korean-node-exporter
+    restart: unless-stopped
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.rootfs=/rootfs'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+      - '--collector.textfile.directory=/var/lib/node_exporter/textfile_collector'
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+      - /var/lib/node_exporter/textfile_collector:/var/lib/node_exporter/textfile_collector:ro
+    networks:
+      - korean-monitoring
+    environment:
+      - TZ=Asia/Seoul
+    labels:
+      - "com.korean-ecommerce.monitoring=node-exporter"
+      - "com.korean-ecommerce.environment=production"
+    pid: host
+
+  # cAdvisor for Korean Container Metrics
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: korean-cadvisor
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    networks:
+      - korean-monitoring
+    environment:
+      - TZ=Asia/Seoul
+    labels:
+      - "com.korean-ecommerce.monitoring=cadvisor"
+      - "com.korean-ecommerce.environment=production"
+    privileged: true
+    devices:
+      - /dev/kmsg
+
+  # Redis Exporter for Korean Cache Metrics
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.53.0
+    container_name: korean-redis-exporter
+    restart: unless-stopped
+    ports:
+      - "9121:9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+      - TZ=Asia/Seoul
+    networks:
+      - korean-monitoring
+    labels:
+      - "com.korean-ecommerce.monitoring=redis-exporter"
+      - "com.korean-ecommerce.environment=production"
+
+  # Postgres Exporter for Korean Database Metrics
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.13.2
+    container_name: korean-postgres-exporter
+    restart: unless-stopped
+    ports:
+      - "9187:9187"
+    environment:
+      - DATA_SOURCE_NAME=postgresql://commerce_admin:your_password@postgres:5432/korean_ecommerce?sslmode=disable
+      - TZ=Asia/Seoul
+    networks:
+      - korean-monitoring
+    labels:
+      - "com.korean-ecommerce.monitoring=postgres-exporter"
+      - "com.korean-ecommerce.environment=production"
+
+  # Nginx Exporter for Korean CDN Metrics
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:0.11.0
+    container_name: korean-nginx-exporter
+    restart: unless-stopped
+    ports:
+      - "9113:9113"
+    command:
+      - -nginx.scrape-uri=http://nginx:8080/nginx_status
+    networks:
+      - korean-monitoring
+    environment:
+      - TZ=Asia/Seoul
+    labels:
+      - "com.korean-ecommerce.monitoring=nginx-exporter"
+      - "com.korean-ecommerce.environment=production"
+
+  # Korean Business Metrics Simulator (for testing)
+  korean-metrics-simulator:
+    image: alpine:3.18
+    container_name: korean-metrics-simulator
+    restart: unless-stopped
+    networks:
+      - korean-monitoring
+    environment:
+      - TZ=Asia/Seoul
+    volumes:
+      - ./scripts/korean-metrics-simulator.sh:/usr/local/bin/simulator.sh:ro
+    command: ["/bin/sh", "-c", "chmod +x /usr/local/bin/simulator.sh && /usr/local/bin/simulator.sh"]
+    labels:
+      - "com.korean-ecommerce.monitoring=metrics-simulator"
+      - "com.korean-ecommerce.environment=production"
+
+  # Jaeger for Korean Distributed Tracing (optional)
+  jaeger:
+    image: jaegertracing/all-in-one:1.48
+    container_name: korean-jaeger
+    restart: unless-stopped
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    networks:
+      - korean-monitoring
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - TZ=Asia/Seoul
+    labels:
+      - "com.korean-ecommerce.monitoring=jaeger"
+      - "com.korean-ecommerce.environment=production"
+
+  # Victoria Metrics for Long-term Storage (optional)
+  victoria-metrics:
+    image: victoriametrics/victoria-metrics:v1.93.4
+    container_name: korean-victoria-metrics
+    restart: unless-stopped
+    ports:
+      - "8428:8428"
+    volumes:
+      - ./victoria-metrics:/victoria-metrics-data
+    command:
+      - --storageDataPath=/victoria-metrics-data
+      - --httpListenAddr=:8428
+      - --retentionPeriod=12m
+    networks:
+      - korean-monitoring
+    environment:
+      - TZ=Asia/Seoul
+    labels:
+      - "com.korean-ecommerce.monitoring=victoria-metrics"
+      - "com.korean-ecommerce.environment=production"
+
+# Health check service for the entire monitoring stack
+  monitoring-health-check:
+    image: alpine:3.18
+    container_name: korean-monitoring-health
+    restart: unless-stopped
+    networks:
+      - korean-monitoring
+    environment:
+      - TZ=Asia/Seoul
+    volumes:
+      - ./scripts/monitoring-health-check.sh:/usr/local/bin/health-check.sh:ro
+    command: ["/bin/sh", "-c", "chmod +x /usr/local/bin/health-check.sh && while true; do /usr/local/bin/health-check.sh; sleep 300; done"]
+    depends_on:
+      - prometheus
+      - grafana
+      - elasticsearch
+      - loki
+      - alertmanager
+    labels:
+      - "com.korean-ecommerce.monitoring=health-check"
+      - "com.korean-ecommerce.environment=production"

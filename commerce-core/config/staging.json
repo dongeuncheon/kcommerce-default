@@ -1,0 +1,192 @@
+{
+  "server": {
+    "type": "fastify",
+    "port": 3000,
+    "host": "0.0.0.0",
+    "logger": {
+      "level": "info",
+      "prettyPrint": false
+    }
+  },
+  "database": {
+    "type": "postgresql",
+    "host": "${DATABASE_HOST}",
+    "port": "${DATABASE_PORT}",
+    "username": "${DATABASE_USER}",
+    "password": "${DATABASE_PASSWORD}",
+    "database": "${DATABASE_NAME}",
+    "synchronize": false,
+    "logging": true,
+    "ssl": {
+      "rejectUnauthorized": false
+    },
+    "entities": ["dist/**/*.entity.js"],
+    "migrations": ["dist/database/migrations/*.js"],
+    "pool": {
+      "max": 10,
+      "min": 2,
+      "acquire": 30000,
+      "idle": 10000
+    }
+  },
+  "redis": {
+    "host": "${REDIS_HOST}",
+    "port": "${REDIS_PORT}",
+    "password": "${REDIS_PASSWORD}",
+    "db": 0,
+    "keyPrefix": "commerce_staging:"
+  },
+  "jwt": {
+    "secret": "${JWT_SECRET}",
+    "expiresIn": "1h",
+    "refreshExpiresIn": "7d"
+  },
+  "payment": {
+    "kakaoPay": {
+      "adminKey": "${KAKAO_PAY_ADMIN_KEY}",
+      "cid": "${KAKAO_PAY_CID}",
+      "secret": "${KAKAO_PAY_SECRET}",
+      "apiUrl": "https://kapi.kakao.com"
+    },
+    "naverPay": {
+      "clientId": "${NAVER_PAY_CLIENT_ID}",
+      "clientSecret": "${NAVER_PAY_CLIENT_SECRET}",
+      "merchantKey": "${NAVER_PAY_MERCHANT_KEY}",
+      "apiUrl": "https://dev.apis.naver.com/naverpay-partner"
+    },
+    "tossPay": {
+      "clientKey": "${TOSS_PAY_CLIENT_KEY}",
+      "secretKey": "${TOSS_PAY_SECRET_KEY}",
+      "apiUrl": "https://api.tosspayments.com"
+    },
+    "nicePay": {
+      "mid": "${NICE_PAY_MID}",
+      "licenseKey": "${NICE_PAY_LICENSE_KEY}",
+      "cancelPassword": "${NICE_PAY_CANCEL_PASSWORD}",
+      "apiUrl": "https://sandbox-api.nicepay.co.kr"
+    }
+  },
+  "shipping": {
+    "providers": {
+      "koreaPost": {
+        "apiKey": "${KOREA_POST_API_KEY}",
+        "apiUrl": "https://trace.epost.go.kr"
+      },
+      "cjLogistics": {
+        "apiKey": "${CJ_LOGISTICS_API_KEY}",
+        "apiUrl": "https://www.doortodoor.co.kr"
+      }
+    },
+    "defaultProvider": "koreaPost",
+    "freeShippingThreshold": 30000
+  },
+  "email": {
+    "provider": "sendgrid",
+    "sendgrid": {
+      "apiKey": "${SENDGRID_API_KEY}",
+      "fromEmail": "${SENDGRID_FROM_EMAIL}",
+      "fromName": "${SENDGRID_FROM_NAME}"
+    }
+  },
+  "sms": {
+    "provider": "coolsms",
+    "coolsms": {
+      "apiKey": "${COOLSMS_API_KEY}",
+      "apiSecret": "${COOLSMS_API_SECRET}",
+      "fromNumber": "${COOLSMS_FROM_NUMBER}"
+    }
+  },
+  "storage": {
+    "provider": "s3",
+    "s3": {
+      "bucket": "${AWS_S3_BUCKET}",
+      "region": "${AWS_REGION}",
+      "accessKeyId": "${AWS_ACCESS_KEY_ID}",
+      "secretAccessKey": "${AWS_SECRET_ACCESS_KEY}"
+    }
+  },
+  "cdn": {
+    "enabled": true,
+    "url": "${CDN_URL}"
+  },
+  "cache": {
+    "ttl": 3600,
+    "checkPeriod": 300,
+    "maxKeys": 5000
+  },
+  "security": {
+    "bcryptRounds": 12,
+    "rateLimit": {
+      "windowMs": 900000,
+      "max": 200
+    },
+    "cors": {
+      "origin": ["${APP_URL}"],
+      "credentials": true
+    },
+    "helmet": {
+      "contentSecurityPolicy": {
+        "directives": {
+          "defaultSrc": ["'self'"],
+          "styleSrc": ["'self'", "'unsafe-inline'"],
+          "scriptSrc": ["'self'"],
+          "imgSrc": ["'self'", "data:", "https:"]
+        }
+      }
+    }
+  },
+  "monitoring": {
+    "sentry": {
+      "dsn": "${SENTRY_DSN}",
+      "environment": "staging",
+      "enabled": true
+    },
+    "newRelic": {
+      "licenseKey": "${NEW_RELIC_LICENSE_KEY}",
+      "appName": "${NEW_RELIC_APP_NAME}",
+      "enabled": true
+    }
+  },
+  "features": {
+    "multiCurrency": true,
+    "taxCalculation": true,
+    "inventoryTracking": true,
+    "guestCheckout": true,
+    "wishlist": true,
+    "reviews": true,
+    "recommendations": true,
+    "socialLogin": true,
+    "multiLanguage": false
+  },
+  "locale": {
+    "default": "ko-KR",
+    "supported": ["ko-KR", "en-US"],
+    "timezone": "Asia/Seoul",
+    "currency": "KRW"
+  },
+  "business": {
+    "taxRate": 0.1,
+    "returnPeriodDays": 7,
+    "refundPeriodDays": 14,
+    "businessHours": {
+      "start": "09:00",
+      "end": "18:00",
+      "timezone": "Asia/Seoul"
+    }
+  },
+  "analytics": {
+    "googleAnalytics": {
+      "trackingId": "${GA_TRACKING_ID}",
+      "enabled": true
+    },
+    "naverAnalytics": {
+      "id": "${NAVER_ANALYTICS_ID}",
+      "enabled": true
+    }
+  },
+  "healthCheck": {
+    "enabled": true,
+    "path": "/health",
+    "timeout": 5000
+  }
+}

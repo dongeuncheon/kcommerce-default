@@ -1,0 +1,176 @@
+{
+  "server": {
+    "type": "fastify",
+    "port": 3001,
+    "host": "localhost",
+    "logger": {
+      "level": "error",
+      "prettyPrint": false
+    }
+  },
+  "database": {
+    "type": "postgresql",
+    "host": "localhost",
+    "port": 5432,
+    "username": "commerce_test",
+    "password": "test_password",
+    "database": "commerce_core_test",
+    "synchronize": true,
+    "logging": false,
+    "dropSchema": true,
+    "entities": ["src/**/*.entity.ts"],
+    "migrations": ["src/database/migrations/*.ts"]
+  },
+  "redis": {
+    "host": "localhost",
+    "port": 6379,
+    "password": "",
+    "db": 1,
+    "keyPrefix": "commerce_test:"
+  },
+  "jwt": {
+    "secret": "test-jwt-secret-not-for-production",
+    "expiresIn": "1h",
+    "refreshExpiresIn": "24h"
+  },
+  "payment": {
+    "kakaoPay": {
+      "adminKey": "test-kakao-pay-admin-key",
+      "cid": "test-kakao-pay-cid",
+      "secret": "test-kakao-pay-secret",
+      "apiUrl": "https://mock-kapi.kakao.com"
+    },
+    "naverPay": {
+      "clientId": "test-naver-pay-client-id",
+      "clientSecret": "test-naver-pay-client-secret",
+      "merchantKey": "test-naver-pay-merchant-key",
+      "apiUrl": "https://mock-dev.apis.naver.com/naverpay-partner"
+    },
+    "tossPay": {
+      "clientKey": "test-toss-pay-client-key",
+      "secretKey": "test-toss-pay-secret-key",
+      "apiUrl": "https://mock-api.tosspayments.com"
+    },
+    "nicePay": {
+      "mid": "test-nice-pay-mid",
+      "licenseKey": "test-nice-pay-license-key",
+      "cancelPassword": "test-nice-pay-cancel-password",
+      "apiUrl": "https://mock-sandbox-api.nicepay.co.kr"
+    }
+  },
+  "shipping": {
+    "providers": {
+      "koreaPost": {
+        "apiKey": "test-korea-post-api-key",
+        "apiUrl": "https://mock-trace.epost.go.kr"
+      },
+      "cjLogistics": {
+        "apiKey": "test-cj-logistics-api-key",
+        "apiUrl": "https://mock-www.doortodoor.co.kr"
+      }
+    },
+    "defaultProvider": "koreaPost",
+    "freeShippingThreshold": 10000
+  },
+  "email": {
+    "provider": "mock",
+    "sendgrid": {
+      "apiKey": "test-sendgrid-api-key",
+      "fromEmail": "test@example.com",
+      "fromName": "Test Commerce"
+    }
+  },
+  "sms": {
+    "provider": "mock",
+    "coolsms": {
+      "apiKey": "test-coolsms-api-key",
+      "apiSecret": "test-coolsms-secret",
+      "fromNumber": "01012345678"
+    }
+  },
+  "storage": {
+    "provider": "mock",
+    "local": {
+      "uploadDir": "./test-uploads",
+      "maxFileSize": "1MB",
+      "allowedTypes": ["jpg", "jpeg", "png"]
+    }
+  },
+  "cdn": {
+    "enabled": false,
+    "url": "http://localhost:3001/uploads"
+  },
+  "cache": {
+    "ttl": 60,
+    "checkPeriod": 10,
+    "maxKeys": 100
+  },
+  "security": {
+    "bcryptRounds": 4,
+    "rateLimit": {
+      "windowMs": 999999999,
+      "max": 999999
+    },
+    "cors": {
+      "origin": ["http://localhost:3001"],
+      "credentials": true
+    },
+    "helmet": {
+      "contentSecurityPolicy": false
+    }
+  },
+  "monitoring": {
+    "sentry": {
+      "dsn": "",
+      "environment": "test",
+      "enabled": false
+    },
+    "newRelic": {
+      "licenseKey": "",
+      "appName": "commerce-core-test",
+      "enabled": false
+    }
+  },
+  "features": {
+    "multiCurrency": true,
+    "taxCalculation": true,
+    "inventoryTracking": true,
+    "guestCheckout": true,
+    "wishlist": true,
+    "reviews": true,
+    "recommendations": true,
+    "socialLogin": true,
+    "multiLanguage": false
+  },
+  "locale": {
+    "default": "ko-KR",
+    "supported": ["ko-KR"],
+    "timezone": "Asia/Seoul",
+    "currency": "KRW"
+  },
+  "business": {
+    "taxRate": 0.1,
+    "returnPeriodDays": 1,
+    "refundPeriodDays": 1,
+    "businessHours": {
+      "start": "00:00",
+      "end": "23:59",
+      "timezone": "Asia/Seoul"
+    }
+  },
+  "analytics": {
+    "googleAnalytics": {
+      "trackingId": "",
+      "enabled": false
+    },
+    "naverAnalytics": {
+      "id": "",
+      "enabled": false
+    }
+  },
+  "test": {
+    "timeout": 10000,
+    "parallel": false,
+    "resetDb": true
+  }
+}
