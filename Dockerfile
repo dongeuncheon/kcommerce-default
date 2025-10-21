@@ -1,5 +1,5 @@
 # Multi-stage Dockerfile for production builds
-FROM node:18-alpine AS base
+FROM node:25-alpine AS base
 
 # Install pnpm
 RUN corepack enable
@@ -28,7 +28,7 @@ RUN pnpm install --prod --frozen-lockfile
 RUN pnpm prisma generate
 
 # Runtime stage
-FROM node:18-alpine AS runner
+FROM node:25-alpine AS runner
 WORKDIR /app
 
 # Add non-root user

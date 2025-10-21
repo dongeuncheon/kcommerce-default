@@ -1,5 +1,5 @@
 # Optimized production Dockerfile with security hardening
-FROM node:18-alpine AS base
+FROM node:25-alpine AS base
 
 # Install security updates
 RUN apk update && apk upgrade && apk add --no-cache \
@@ -39,7 +39,7 @@ COPY client/ .
 RUN pnpm build
 
 # Runtime stage
-FROM node:18-alpine AS runner
+FROM node:25-alpine AS runner
 
 # Install dumb-init for proper signal handling
 RUN apk add --no-cache dumb-init
