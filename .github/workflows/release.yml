@@ -103,7 +103,7 @@ jobs:
             LICENSE
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v5
         with:
           name: release-artifacts-${{ matrix.os }}-node${{ matrix.node }}
           path: commerce-plugin-*.tar.gz
